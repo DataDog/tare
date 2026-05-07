@@ -84,7 +84,7 @@ files:
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	p := cfg.Files[0].Contents[0]
+	p := cfg.Files[0].Contents.Patterns[0]
 	if p.Value != "UTC" || p.Match {
 		t.Errorf("got %+v, want literal UTC", p)
 	}
@@ -102,7 +102,7 @@ files:
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	patterns := cfg.Files[0].Contents
+	patterns := cfg.Files[0].Contents.Patterns
 	if len(patterns) != 2 {
 		t.Fatalf("got %d patterns, want 2", len(patterns))
 	}
@@ -127,6 +127,77 @@ files:
 `))
 	if err == nil {
 		t.Fatal("expected error for empty match")
+	}
+}
+
+func TestParsePatternListEmptyForm(t *testing.T) {
+	cfg, err := Parse([]byte(`
+schema_version: 1
+files:
+  - path: /var/log/quiet
+    contents: { empty: true }
+commands:
+  - name: silent
+    run: ["/bin/silent"]
+    stdout: { empty: true }
+    stderr: { empty: true }
+  - name: chatty
+    run: ["/bin/chatty"]
+    not:
+      stdout: { empty: true }
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !cfg.Files[0].Contents.Empty {
+		t.Error("Files[0].Contents.Empty should be true")
+	}
+	if !cfg.Commands[0].Stdout.Empty {
+		t.Error("Commands[0].Stdout.Empty (positive) should be true")
+	}
+	if !cfg.Commands[1].Not.Stdout.Empty {
+		t.Error("Commands[1].Not.Stdout.Empty (negative) should be true")
+	}
+}
+
+func TestParsePatternListEmptyFalseRejected(t *testing.T) {
+	_, err := Parse([]byte(`
+schema_version: 1
+commands:
+  - name: foo
+    run: ["/bin/foo"]
+    stdout: { empty: false }
+`))
+	if err == nil {
+		t.Fatal("expected error for {empty: false}")
+	}
+}
+
+func TestParsePatternListUnknownOptionRejected(t *testing.T) {
+	_, err := Parse([]byte(`
+schema_version: 1
+commands:
+  - name: foo
+    run: ["/bin/foo"]
+    stdout: { empyt: true }
+`))
+	if err == nil {
+		t.Fatal("expected error for unknown option key")
+	}
+}
+
+func TestValidateContradictoryEmptyAssertions(t *testing.T) {
+	_, err := Parse([]byte(`
+schema_version: 1
+commands:
+  - name: contradictory
+    run: ["/bin/foo"]
+    stdout: { empty: true }
+    not:
+      stdout: { empty: true }
+`))
+	if err == nil {
+		t.Fatal("expected error for contradictory empty assertions")
 	}
 }
 

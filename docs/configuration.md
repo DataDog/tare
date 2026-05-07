@@ -160,6 +160,17 @@ Class names: `owner`, `group`, `other`, `any`. For exact-mode assertions involvi
 
 Patterns to find (or, under `not:`, to exclude) in the file contents. See **Regex** below for opt-in semantics.
 
+`contents:` accepts either a list of patterns (the common case) or the options map `{ empty: true }` to assert the file is exactly zero bytes. Negate with `not: { contents: { empty: true } }` to assert non-empty.
+
+```yaml
+files:
+  - path: /var/log/build.log
+    contents: { empty: true }      # log must be empty after a clean build
+  - path: /etc/version
+    not:
+      contents: { empty: true }    # version file must contain something
+```
+
 ### Caveats
 
 - `present: false` excludes all other assertions. A non-existent path has no type, perms, owner, or content to check.
@@ -174,7 +185,6 @@ Run a command inside the container; assert exit code and output.
 commands:
   - name: prints version
     run: ["/app/bin/server", "--version"]
-    exit: 0
     stdout: ["^v\\d+\\.\\d+"]
     regex: true
     not:
@@ -183,6 +193,10 @@ commands:
   - name: starts cleanly
     run: /app/bin/server                        # short form: one-element argv
 
+  - name: emits no warnings
+    run: ["/app/bin/server", "--check"]
+    stderr: { empty: true }                     # options form
+
   - name: validates config under fixture
     setup:
       - ["touch", "/tmp/marker"]
@@ -190,11 +204,21 @@ commands:
     env:
       - key: APP_ENV
         value: test
-    exit: 0
     stdout: ["config ok"]
     teardown:
       - ["rm", "-f", "/tmp/marker"]
 ```
+
+`exit:` defaults to `0`. Omit it for "should succeed"; set it explicitly only when the command is expected to fail with a specific code.
+
+### `stdout` / `stderr` polymorphism
+
+Each accepts either:
+
+- **List of patterns** — `stdout: ["foo", "bar"]`. AND-semantic: every pattern must match. List items follow the same scalar/`{match: ...}` rules as `files.contents` patterns. The `regex: true` flag flips every bare-string entry in the test from literal to regex.
+- **Options map** — `stdout: { empty: true }`. The stream must be exactly zero bytes. The negation, `not: { stdout: { empty: true } }`, asserts the stream is non-empty.
+
+The two forms are mutually exclusive on a given field. To assert "non-empty AND contains 'X'", use `stdout: ["X"]` — the pattern match implies non-empty content.
 
 ### `run` polymorphism
 

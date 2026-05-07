@@ -381,8 +381,28 @@ func execFileContent(fsys rootfs.FS, spec *testplan.FileContentSpec) error {
 		return fmt.Errorf("reading %s: %v", spec.Path, err)
 	}
 
+	if err := checkEmpty(spec.Path, len(data), spec.Empty); err != nil {
+		return fmt.Errorf("%s\n%s", err, formatBody(spec.Path, data, len(data)))
+	}
 	if err := matchPatterns(spec.Path, data, spec.ExpectedContents, spec.ExcludedContents); err != nil {
 		return fmt.Errorf("%s\n%s", err, formatBody(spec.Path, data, len(data)))
+	}
+	return nil
+}
+
+// checkEmpty validates a tri-state empty assertion. nil means no
+// assertion. *empty == true means the source must be exactly zero bytes
+// (we use total rather than captured length so a capped stream still
+// fails correctly). *empty == false means the source must be non-empty.
+func checkEmpty(label string, total int, empty *bool) error {
+	if empty == nil {
+		return nil
+	}
+	if *empty && total != 0 {
+		return fmt.Errorf("%s: expected empty, got %d bytes", label, total)
+	}
+	if !*empty && total == 0 {
+		return fmt.Errorf("%s: expected non-empty, got empty", label)
 	}
 	return nil
 }
@@ -469,7 +489,11 @@ func execCommand(spec *testplan.CommandSpec) error {
 	case exitCode != spec.ExitCode:
 		failure = fmt.Errorf("exit code: expected %d, got %d", spec.ExitCode, exitCode)
 	default:
-		if err := matchPatterns("stdout", stdout.buf.Bytes(), spec.ExpectedOutput, spec.ExcludedOutput); err != nil {
+		if err := checkEmpty("stdout", stdout.total, spec.StdoutEmpty); err != nil {
+			failure = err
+		} else if err := checkEmpty("stderr", stderr.total, spec.StderrEmpty); err != nil {
+			failure = err
+		} else if err := matchPatterns("stdout", stdout.buf.Bytes(), spec.ExpectedOutput, spec.ExcludedOutput); err != nil {
 			failure = err
 		} else if err := matchPatterns("stderr", stderr.buf.Bytes(), spec.ExpectedError, spec.ExcludedError); err != nil {
 			failure = err

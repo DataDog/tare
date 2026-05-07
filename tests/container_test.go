@@ -348,10 +348,10 @@ func intPtr(n int) *int    { return &n }
 func boolPtr(b bool) *bool { return &b }
 
 // pat is a small helper to build a list of literal-string Patterns.
-func pat(values ...string) []config.Pattern {
+func pat(values ...string) config.PatternList {
 	out := make([]config.Pattern, len(values))
 	for i, v := range values {
 		out[i] = config.Pattern{Value: v}
 	}
-	return out
+	return config.PatternList{Patterns: out}
 }

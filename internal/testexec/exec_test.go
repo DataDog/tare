@@ -361,6 +361,35 @@ func TestMatchPatternsBinary(t *testing.T) {
 	})
 }
 
+func TestCheckEmpty(t *testing.T) {
+	tt := true
+	ff := false
+	cases := []struct {
+		name    string
+		total   int
+		empty   *bool
+		wantErr bool
+	}{
+		{"nil flag, empty stream", 0, nil, false},
+		{"nil flag, non-empty stream", 100, nil, false},
+		{"must be empty, empty stream", 0, &tt, false},
+		{"must be empty, non-empty stream", 1, &tt, true},
+		{"must NOT be empty, empty stream", 0, &ff, true},
+		{"must NOT be empty, non-empty stream", 1, &ff, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := checkEmpty("stdout", tc.total, tc.empty)
+			if tc.wantErr && err == nil {
+				t.Errorf("got nil error, want error")
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("got error %v, want nil", err)
+			}
+		})
+	}
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a

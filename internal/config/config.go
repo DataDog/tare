@@ -54,27 +54,27 @@ type KV struct {
 // FileAssertion is a unified existence + content + permission assertion
 // against one path. Path entries can target files, directories, or symlinks.
 type FileAssertion struct {
-	Path         string    `yaml:"path"`
-	Present      *bool     `yaml:"present"`
-	Type         string    `yaml:"type"`
-	UID          *int      `yaml:"uid"`
-	GID          *int      `yaml:"gid"`
-	Permissions  string    `yaml:"permissions"`
-	ReadableBy   ClassList `yaml:"readable_by"`
-	WritableBy   ClassList `yaml:"writable_by"`
-	ExecutableBy ClassList `yaml:"executable_by"`
-	Contents     []Pattern `yaml:"contents"`
-	Regex        bool      `yaml:"regex"`
-	Not          *FileNot  `yaml:"not"`
+	Path         string      `yaml:"path"`
+	Present      *bool       `yaml:"present"`
+	Type         string      `yaml:"type"`
+	UID          *int        `yaml:"uid"`
+	GID          *int        `yaml:"gid"`
+	Permissions  string      `yaml:"permissions"`
+	ReadableBy   ClassList   `yaml:"readable_by"`
+	WritableBy   ClassList   `yaml:"writable_by"`
+	ExecutableBy ClassList   `yaml:"executable_by"`
+	Contents     PatternList `yaml:"contents"`
+	Regex        bool        `yaml:"regex"`
+	Not          *FileNot    `yaml:"not"`
 }
 
 // FileNot inverts the contained child assertions.
 type FileNot struct {
-	Type         string    `yaml:"type"`
-	ReadableBy   ClassList `yaml:"readable_by"`
-	WritableBy   ClassList `yaml:"writable_by"`
-	ExecutableBy ClassList `yaml:"executable_by"`
-	Contents     []Pattern `yaml:"contents"`
+	Type         string      `yaml:"type"`
+	ReadableBy   ClassList   `yaml:"readable_by"`
+	WritableBy   ClassList   `yaml:"writable_by"`
+	ExecutableBy ClassList   `yaml:"executable_by"`
+	Contents     PatternList `yaml:"contents"`
 }
 
 // CommandAssertion runs a command in the container and asserts on output.
@@ -83,8 +83,8 @@ type CommandAssertion struct {
 	Run      Run         `yaml:"run"`
 	Env      []KV        `yaml:"env"`
 	Exit     *int        `yaml:"exit"`
-	Stdout   []Pattern   `yaml:"stdout"`
-	Stderr   []Pattern   `yaml:"stderr"`
+	Stdout   PatternList `yaml:"stdout"`
+	Stderr   PatternList `yaml:"stderr"`
 	Setup    [][]string  `yaml:"setup"`
 	Teardown [][]string  `yaml:"teardown"`
 	Regex    bool        `yaml:"regex"`
@@ -93,8 +93,8 @@ type CommandAssertion struct {
 
 // CommandNot lists output patterns that must NOT match.
 type CommandNot struct {
-	Stdout []Pattern `yaml:"stdout"`
-	Stderr []Pattern `yaml:"stderr"`
+	Stdout PatternList `yaml:"stdout"`
+	Stderr PatternList `yaml:"stderr"`
 }
 
 // ScanEntry configures ELF dependency analysis on one path.
@@ -183,6 +183,64 @@ func (p *Pattern) UnmarshalYAML(node *yaml.Node) error {
 		p.Match = true
 	default:
 		return fmt.Errorf("pattern must be a string or {match: ...}")
+	}
+	return nil
+}
+
+// PatternList is a polymorphic field that accepts either:
+//   - a list of Pattern entries (the common case), or
+//   - an options map with semantic shortcuts like {empty: true}.
+//
+// The two forms are mutually exclusive: a field is either a list of
+// patterns or an options map, never both.
+type PatternList struct {
+	// Patterns is the list-form payload.
+	Patterns []Pattern
+
+	// Empty signals that the {empty: true} options form was used. The
+	// stream/file must be exactly zero bytes for the assertion to pass.
+	Empty bool
+}
+
+// UnmarshalYAML accepts a sequence (list of patterns) or a mapping
+// (options form, currently only {empty: true}).
+func (pl *PatternList) UnmarshalYAML(node *yaml.Node) error {
+	switch node.Kind {
+	case yaml.SequenceNode:
+		return node.Decode(&pl.Patterns)
+	case yaml.MappingNode:
+		// Walk keys explicitly so unknown options become a parse error
+		// rather than being silently ignored.
+		if len(node.Content)%2 != 0 {
+			return fmt.Errorf("invalid pattern-list options map")
+		}
+		for i := 0; i < len(node.Content); i += 2 {
+			key := node.Content[i].Value
+			val := node.Content[i+1]
+			switch key {
+			case "empty":
+				var v bool
+				if err := val.Decode(&v); err != nil {
+					return fmt.Errorf("'empty': %v", err)
+				}
+				if !v {
+					return fmt.Errorf("'empty' must be true if specified (use a pattern list to assert non-empty content, or move 'empty: true' under not:)")
+				}
+				pl.Empty = true
+			default:
+				return fmt.Errorf("unknown pattern-list option %q (allowed: empty)", key)
+			}
+		}
+		if !pl.Empty {
+			return fmt.Errorf("pattern-list options map must include {empty: true}")
+		}
+	case yaml.ScalarNode:
+		if node.Tag == "!!null" {
+			return nil
+		}
+		return fmt.Errorf("expected a list of patterns or {empty: true}")
+	default:
+		return fmt.Errorf("expected a list of patterns or {empty: true}")
 	}
 	return nil
 }
@@ -396,7 +454,7 @@ func validateFile(i int, f *FileAssertion) error {
 	if f.Present != nil && !*f.Present {
 		if f.Type != "" || f.UID != nil || f.GID != nil || f.Permissions != "" ||
 			len(f.ReadableBy) > 0 || len(f.WritableBy) > 0 || len(f.ExecutableBy) > 0 ||
-			len(f.Contents) > 0 || f.Not != nil {
+			len(f.Contents.Patterns) > 0 || f.Contents.Empty || f.Not != nil {
 			return fmt.Errorf("%s: present: false excludes all other assertions", tag)
 		}
 		return nil
@@ -437,6 +495,9 @@ func validateFile(i int, f *FileAssertion) error {
 		if err := validateClasses("not.executable_by", f.Not.ExecutableBy); err != nil {
 			return fmt.Errorf("%s: %w", tag, err)
 		}
+		if f.Contents.Empty && f.Not.Contents.Empty {
+			return fmt.Errorf("%s: contents has contradictory empty assertions (both positive and not:)", tag)
+		}
 	}
 	return nil
 }
@@ -452,6 +513,14 @@ func validateCommand(i int, c *CommandAssertion) error {
 	for j, e := range c.Env {
 		if e.Key == "" {
 			return fmt.Errorf("%s: env[%d]: key is required", tag, j)
+		}
+	}
+	if c.Not != nil {
+		if c.Stdout.Empty && c.Not.Stdout.Empty {
+			return fmt.Errorf("%s: stdout has contradictory empty assertions (both positive and not:)", tag)
+		}
+		if c.Stderr.Empty && c.Not.Stderr.Empty {
+			return fmt.Errorf("%s: stderr has contradictory empty assertions (both positive and not:)", tag)
 		}
 	}
 	return nil
