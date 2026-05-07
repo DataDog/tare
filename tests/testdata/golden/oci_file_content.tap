@@ -1,0 +1,8 @@
+TAP version 14
+1..6
+ok 1 - file: /etc/passwd
+ok 2 - file content: /etc/passwd
+ok 3 - file: /etc/passwd (2)
+ok 4 - file content: /etc/passwd (2)
+ok 5 - file: /etc/passwd (3)
+ok 6 - file content: /etc/passwd (3)

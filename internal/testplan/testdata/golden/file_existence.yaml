@@ -1,0 +1,24 @@
+schema_version: 1
+
+files:
+  - path: /etc/ssl/certs/ca-certificates.crt
+
+  - path: /bin/sh
+    present: false
+
+  - path: /bin/myservice
+    permissions: "-rwxr-xr-x"
+    uid: 0
+    gid: 0
+    executable_by: group
+
+  - path: /tmp
+    type: dir
+    writable_by: any
+
+  - path: /etc/secret
+    type: file
+    permissions: "0600"
+    not:
+      type: symlink
+      readable_by: other

@@ -1,0 +1,11 @@
+TAP version 14
+1..9
+ok 1 - metadata: user is 1000
+ok 2 - metadata: workdir is /app
+ok 3 - metadata: env APP_ENV
+ok 4 - file: /app/server
+ok 5 - file: /etc/ssl/certs/ca-certificates.crt
+ok 6 - file: /bin/sh
+ok 7 - file: /etc/passwd
+ok 8 - file content: /etc/passwd
+ok 9 - command: echo hello # SKIP command tests not available for OCI layouts

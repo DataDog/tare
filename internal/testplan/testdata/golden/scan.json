@@ -1,0 +1,20 @@
+{
+  "metadataFile": "/tmp/.tare/meta.json",
+  "tests": [
+    {
+      "name": "scan: app shared libraries resolve",
+      "type": "scan",
+      "scan": {
+        "path": "/app"
+      }
+    },
+    {
+      "name": "scan: python native extensions resolve",
+      "type": "scan",
+      "scan": {
+        "path": "/opt/venv/lib",
+        "noRuntime": true
+      }
+    }
+  ]
+}

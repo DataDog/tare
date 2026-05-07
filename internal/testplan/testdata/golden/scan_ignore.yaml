@@ -1,0 +1,8 @@
+schema_version: 1
+
+scan:
+  - name: app shared libraries resolve
+    path: /app
+    ignore:
+      - "/opt/venv/lib/python3/site-packages/PIL/*.so"
+      - libgif.so.7

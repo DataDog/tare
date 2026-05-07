@@ -1,0 +1,14 @@
+# Policy for: .github/workflows/release-prep.yml in DataDog/tare
+# Grants contents:write + pull_requests:write for creating release branches and PRs.
+issuer: https://token.actions.githubusercontent.com
+subject: repo:DataDog/tare:ref:refs/heads/main
+
+claim_pattern:
+  event_name: workflow_dispatch
+  job_workflow_ref: DataDog/tare/\.github/workflows/release-prep\.yml@refs/heads/main
+  ref: refs/heads/main
+  repository: DataDog/tare
+
+permissions:
+  contents: write
+  pull_requests: write

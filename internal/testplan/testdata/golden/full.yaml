@@ -1,0 +1,21 @@
+schema_version: 1
+
+metadata:
+  - user: app
+    entrypoint: ["/app/myservice"]
+
+files:
+  - path: /etc/ssl/certs/ca-certificates.crt
+  - path: /bin/sh
+    present: false
+  - path: /etc/timezone
+    contents: ["UTC"]
+
+scan:
+  - name: app shared libraries resolve
+    path: /app
+
+commands:
+  - name: starts
+    run: ["/app/myservice", "--version"]
+    exit: 0

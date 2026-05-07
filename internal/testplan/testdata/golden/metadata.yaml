@@ -1,0 +1,24 @@
+schema_version: 1
+
+metadata:
+  - name: production deployment
+    user: nonroot
+    workdir: /app
+    entrypoint: ["/app/server"]
+    cmd: ["--port", "8080"]
+    env:
+      - key: SSL_CERT_FILE
+        value: /etc/ssl/certs/ca-certificates.crt
+      - key: APP_ENV
+        value: prod.*
+        regex: true
+    labels:
+      - key: org.opencontainers.image.version
+        value: 1.0.0
+      - key: maintainer
+        value: team@example.com
+    ports: ["8080/tcp", "9090/tcp"]
+    volumes: ["/data"]
+    not:
+      env: [DEBUG, AWS_SECRET_ACCESS_KEY]
+      ports: ["22/tcp"]

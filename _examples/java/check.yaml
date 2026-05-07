@@ -1,0 +1,19 @@
+schema_version: 1
+
+metadata:
+  - user: "65532"
+
+files:
+  - path: /app/app.jar
+
+  - path: /bin/sh
+    present: false
+
+scan:
+  - name: app and library JARs
+    path: /app
+
+commands:
+  - name: app runs successfully
+    run: ["java", "-jar", "/app/app.jar"]
+    stdout: ["hello from java"]

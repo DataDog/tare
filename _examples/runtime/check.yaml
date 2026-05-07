@@ -1,0 +1,37 @@
+schema_version: 1
+
+# This image won't pass its command test on its own:
+# the app needs APP_ENV (set by the deployment) and a config file
+# at /etc/myapp/config.yaml (mounted from a k8s configmap, etc.).
+# tare.runtime emulates that deployment context so we can verify the
+# image actually runs the way production runs it.
+
+metadata:
+  - user: "65532"
+
+files:
+  - path: /app/server
+    executable_by: any
+
+  - path: /bin/sh
+    present: false
+
+scan:
+  - path: /app
+
+commands:
+  - name: app starts with config and env
+    run: /app/server
+    exit: 0
+    stdout: ["env=test", "service_name: tare-runtime-example"]
+
+tare:
+  runtime:
+    # binds and env_file paths are resolved relative to this config file
+    # at parse time, then validated for existence — typos fail with a
+    # clear error rather than a cryptic docker error later.
+    binds:
+      - "fixtures:/etc/myapp:ro"
+    env:
+      - key: APP_ENV
+        value: test

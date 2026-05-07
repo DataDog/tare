@@ -1,0 +1,18 @@
+schema_version: 1
+
+metadata:
+  - entrypoint: ["/app/server"]
+    user: "65532"
+
+files:
+  - path: /app/server
+    executable_by: owner
+
+  - path: /etc/ssl/certs/ca-certificates.crt
+
+  - path: /bin/sh
+    present: false
+
+scan:
+  - name: app binary dependencies
+    path: /app

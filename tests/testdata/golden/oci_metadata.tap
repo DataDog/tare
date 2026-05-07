@@ -1,0 +1,7 @@
+TAP version 14
+1..5
+ok 1 - metadata: user is app
+ok 2 - metadata: workdir is /app
+ok 3 - metadata: env APP_ENV
+ok 4 - metadata: env PATH
+ok 5 - metadata: label version

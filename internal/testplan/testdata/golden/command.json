@@ -1,0 +1,86 @@
+{
+  "metadataFile": "/tmp/.tare/meta.json",
+  "tests": [
+    {
+      "name": "command: prints version",
+      "type": "command",
+      "command": {
+        "command": "/app/myservice",
+        "args": [
+          "--version"
+        ],
+        "exitCode": 0,
+        "expectedOutput": [
+          "v\\d+\\.\\d+\\.\\d+"
+        ]
+      }
+    },
+    {
+      "name": "command: shared libraries resolve",
+      "type": "command",
+      "command": {
+        "command": "ldd",
+        "args": [
+          "/app/myservice"
+        ],
+        "exitCode": 0,
+        "excludedOutput": [
+          "not found"
+        ]
+      }
+    },
+    {
+      "name": "command: config validates",
+      "type": "command",
+      "command": {
+        "command": "/app/myservice",
+        "args": [
+          "--validate-config"
+        ],
+        "exitCode": 0,
+        "excludedError": [
+          "FATAL",
+          "panic"
+        ]
+      }
+    },
+    {
+      "name": "command: starts under env",
+      "type": "command",
+      "command": {
+        "command": "/app/myservice",
+        "env": [
+          {
+            "key": "APP_ENV",
+            "value": "test"
+          }
+        ],
+        "exitCode": 0
+      }
+    },
+    {
+      "name": "command: setup and teardown",
+      "type": "command",
+      "command": {
+        "command": "stat",
+        "args": [
+          "/tmp/marker"
+        ],
+        "exitCode": 0,
+        "setup": [
+          [
+            "touch",
+            "/tmp/marker"
+          ]
+        ],
+        "teardown": [
+          [
+            "rm",
+            "-f",
+            "/tmp/marker"
+          ]
+        ]
+      }
+    }
+  ]
+}

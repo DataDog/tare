@@ -1,0 +1,39 @@
+[changelog]
+header = """# Changelog
+
+All notable changes to this project will be documented in this file.
+"""
+body = """
+{% if version -%}
+## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% if previous.version -%}
+[{{ version | trim_start_matches(pat="v") }}]: https://github.com/DataDog/tare/compare/{{ previous.version }}...{{ version }}
+{% else -%}
+[{{ version | trim_start_matches(pat="v") }}]: https://github.com/DataDog/tare/releases/tag/{{ version }}
+{% endif -%}
+{% else -%}
+## [Unreleased]
+{% endif -%}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}
+- {{ commit.message | split(pat="\n") | first | upper_first | trim }}\
+{% endfor %}
+{% endfor %}"""
+trim = false
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+commit_parsers = [
+    { message = "^feat", group = "Added" },
+    { message = "^fix", group = "Fixed" },
+    { message = "^refactor", group = "Changed" },
+    { message = "^perf", group = "Changed" },
+    { message = "^chore\\(release\\)", skip = true },
+    { message = "^chore|^ci|^build|^test|^style|^doc", skip = true },
+]
+tag_pattern = "v[0-9].*"
+
+[bump]
+initial_tag = "v0.1.0"

@@ -1,0 +1,24 @@
+schema_version: 1
+
+metadata:
+  - user: "65532"
+
+files:
+  - path: /app/app.py
+
+  - path: /etc/ssl/certs/ca-certificates.crt
+
+  - path: /bin/sh
+    present: false
+
+  - path: /usr/local/bin/pip
+    present: false
+
+scan:
+  - name: python native extensions
+    path: /app/deps
+
+commands:
+  - name: app runs successfully
+    run: ["python3", "/app/app.py"]
+    stdout: ["hello from python"]
