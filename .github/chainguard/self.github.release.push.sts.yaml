@@ -1,0 +1,13 @@
+# Policy for: .github/workflows/release.yml in DataDog/tare
+# Grants contents:write for creating tags and releases on release branch merges.
+issuer: https://token.actions.githubusercontent.com
+subject: repo:DataDog/tare:ref:refs/heads/main
+
+claim_pattern:
+  event_name: push
+  job_workflow_ref: DataDog/tare/\.github/workflows/release\.yml@refs/heads/main
+  ref: refs/heads/main
+  repository: DataDog/tare
+
+permissions:
+  contents: write

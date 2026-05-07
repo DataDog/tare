@@ -1,0 +1,6 @@
+TAP version 14
+1..4
+ok 1 - file existence: passwd exists
+ok 2 - file existence: missing file absent
+ok 3 - file existence: myservice is executable
+ok 4 - file content: passwd has app user

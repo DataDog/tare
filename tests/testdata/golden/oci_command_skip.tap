@@ -1,0 +1,4 @@
+TAP version 14
+1..2
+ok 1 - command: should be skipped # SKIP command tests not available for OCI layouts
+ok 2 - command: also skipped # SKIP command tests not available for OCI layouts

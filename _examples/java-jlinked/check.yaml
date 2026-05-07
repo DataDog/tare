@@ -1,0 +1,36 @@
+schema_version: 1
+
+# Same app as the `java` example, but with a jlinked custom JRE on
+# distroless/base. The `java` binary lives at /jre/bin/java.
+
+metadata:
+  - user: "65532"          # distroless nonroot is UID 65532
+
+files:
+  - path: /app/app.jar
+
+  - path: /jre/bin/java
+    executable_by: any
+
+  - path: /bin/sh
+    present: false
+
+scan:
+  - name: jlinked JRE shared libraries
+    path: /jre
+    ignore:
+      # JRE auxiliary libs (libjava.so, libnio.so, libnet.so, …) link
+      # libjvm.so via LD_LIBRARY_PATH set by the `java` launcher at startup,
+      # not via a DT_RUNPATH that points at lib/server/. Static scan can't
+      # see launcher-set paths — this is the same class of blind spot as
+      # dlopen and NSS modules. The command test below exercises the real
+      # dependency by actually running the JVM.
+      - libjvm.so
+
+  - name: app and library JARs
+    path: /app
+
+commands:
+  - name: app runs successfully
+    run: ["/jre/bin/java", "-jar", "/app/app.jar"]
+    stdout: ["hello from java"]

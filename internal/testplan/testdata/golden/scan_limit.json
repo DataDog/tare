@@ -1,0 +1,13 @@
+{
+  "metadataFile": "/tmp/.tare/meta.json",
+  "tests": [
+    {
+      "name": "scan: app shared libraries resolve",
+      "type": "scan",
+      "scan": {
+        "path": "/app",
+        "limit": 512
+      }
+    }
+  ]
+}

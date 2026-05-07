@@ -1,0 +1,61 @@
+{
+  "metadataFile": "/tmp/.tare/meta.json",
+  "tests": [
+    {
+      "name": "file: /etc/ssl/certs/ca-certificates.crt",
+      "type": "fileExistence",
+      "fileExistence": {
+        "path": "/etc/ssl/certs/ca-certificates.crt",
+        "shouldExist": true
+      }
+    },
+    {
+      "name": "file: /bin/sh",
+      "type": "fileExistence",
+      "fileExistence": {
+        "path": "/bin/sh",
+        "shouldExist": false
+      }
+    },
+    {
+      "name": "file: /bin/myservice",
+      "type": "fileExistence",
+      "fileExistence": {
+        "path": "/bin/myservice",
+        "shouldExist": true,
+        "uid": 0,
+        "gid": 0,
+        "permissions": "-rwxr-xr-x",
+        "executableBy": [
+          "group"
+        ]
+      }
+    },
+    {
+      "name": "file: /tmp",
+      "type": "fileExistence",
+      "fileExistence": {
+        "path": "/tmp",
+        "shouldExist": true,
+        "type": "dir",
+        "writableBy": [
+          "any"
+        ]
+      }
+    },
+    {
+      "name": "file: /etc/secret",
+      "type": "fileExistence",
+      "fileExistence": {
+        "path": "/etc/secret",
+        "shouldExist": true,
+        "type": "file",
+        "notType": "symlink",
+        "permissions": "0600",
+        "notReadableBy": [
+          "other"
+        ]
+      }
+    }
+  ]
+}

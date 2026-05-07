@@ -1,0 +1,16 @@
+{
+  "metadataFile": "/tmp/.tare/meta.json",
+  "tests": [
+    {
+      "name": "scan: app shared libraries resolve",
+      "type": "scan",
+      "scan": {
+        "path": "/app",
+        "ignore": [
+          "/opt/venv/lib/python3/site-packages/PIL/*.so",
+          "libgif.so.7"
+        ]
+      }
+    }
+  ]
+}

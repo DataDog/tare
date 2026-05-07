@@ -1,0 +1,79 @@
+{
+  "metadataFile": "/tmp/.tare/meta.json",
+  "tests": [
+    {
+      "name": "file: /etc/timezone",
+      "type": "fileExistence",
+      "fileExistence": {
+        "path": "/etc/timezone",
+        "shouldExist": true
+      }
+    },
+    {
+      "name": "file content: /etc/timezone",
+      "type": "fileContent",
+      "fileContent": {
+        "path": "/etc/timezone",
+        "expectedContents": [
+          "UTC"
+        ]
+      }
+    },
+    {
+      "name": "file: /app/config.yaml",
+      "type": "fileExistence",
+      "fileExistence": {
+        "path": "/app/config.yaml",
+        "shouldExist": true
+      }
+    },
+    {
+      "name": "file content: /app/config.yaml",
+      "type": "fileContent",
+      "fileContent": {
+        "path": "/app/config.yaml",
+        "excludedContents": [
+          "password:",
+          "secret:"
+        ]
+      }
+    },
+    {
+      "name": "file: /app/version.txt",
+      "type": "fileExistence",
+      "fileExistence": {
+        "path": "/app/version.txt",
+        "shouldExist": true
+      }
+    },
+    {
+      "name": "file content: /app/version.txt",
+      "type": "fileContent",
+      "fileContent": {
+        "path": "/app/version.txt",
+        "expectedContents": [
+          "^v\\d+\\.\\d+"
+        ]
+      }
+    },
+    {
+      "name": "file: /app/banner.txt",
+      "type": "fileExistence",
+      "fileExistence": {
+        "path": "/app/banner.txt",
+        "shouldExist": true
+      }
+    },
+    {
+      "name": "file content: /app/banner.txt",
+      "type": "fileContent",
+      "fileContent": {
+        "path": "/app/banner.txt",
+        "expectedContents": [
+          "Copyright Datadog",
+          "Build [0-9a-f]{7}"
+        ]
+      }
+    }
+  ]
+}

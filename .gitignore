@@ -1,0 +1,8 @@
+/tare
+/tare-tool
+
+/harness/
+/.cache/
+/dist/
+
+.claude/settings.local.json

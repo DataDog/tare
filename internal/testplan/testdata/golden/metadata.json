@@ -1,0 +1,125 @@
+{
+  "metadataFile": "/tmp/.tare/meta.json",
+  "tests": [
+    {
+      "name": "metadata (production deployment): user is nonroot",
+      "type": "metadata",
+      "metadata": {
+        "field": "user",
+        "expected": "nonroot"
+      }
+    },
+    {
+      "name": "metadata (production deployment): workdir is /app",
+      "type": "metadata",
+      "metadata": {
+        "field": "workdir",
+        "expected": "/app"
+      }
+    },
+    {
+      "name": "metadata (production deployment): entrypoint",
+      "type": "metadata",
+      "metadata": {
+        "field": "entrypoint",
+        "expected": "[\"/app/server\"]"
+      }
+    },
+    {
+      "name": "metadata (production deployment): cmd",
+      "type": "metadata",
+      "metadata": {
+        "field": "cmd",
+        "expected": "[\"--port\",\"8080\"]"
+      }
+    },
+    {
+      "name": "metadata (production deployment): env SSL_CERT_FILE",
+      "type": "metadata",
+      "metadata": {
+        "field": "env",
+        "key": "SSL_CERT_FILE",
+        "expected": "/etc/ssl/certs/ca-certificates.crt"
+      }
+    },
+    {
+      "name": "metadata (production deployment): env APP_ENV",
+      "type": "metadata",
+      "metadata": {
+        "field": "env",
+        "key": "APP_ENV",
+        "expected": "prod.*",
+        "isRegex": true
+      }
+    },
+    {
+      "name": "metadata (production deployment): label org.opencontainers.image.version",
+      "type": "metadata",
+      "metadata": {
+        "field": "label",
+        "key": "org.opencontainers.image.version",
+        "expected": "1.0.0"
+      }
+    },
+    {
+      "name": "metadata (production deployment): label maintainer",
+      "type": "metadata",
+      "metadata": {
+        "field": "label",
+        "key": "maintainer",
+        "expected": "team@example.com"
+      }
+    },
+    {
+      "name": "metadata (production deployment): port 8080/tcp",
+      "type": "metadata",
+      "metadata": {
+        "field": "port",
+        "key": "8080/tcp"
+      }
+    },
+    {
+      "name": "metadata (production deployment): port 9090/tcp",
+      "type": "metadata",
+      "metadata": {
+        "field": "port",
+        "key": "9090/tcp"
+      }
+    },
+    {
+      "name": "metadata (production deployment): volume /data",
+      "type": "metadata",
+      "metadata": {
+        "field": "volume",
+        "key": "/data"
+      }
+    },
+    {
+      "name": "metadata (production deployment): env DEBUG absent",
+      "type": "metadata",
+      "metadata": {
+        "field": "env",
+        "key": "DEBUG",
+        "negate": true
+      }
+    },
+    {
+      "name": "metadata (production deployment): env AWS_SECRET_ACCESS_KEY absent",
+      "type": "metadata",
+      "metadata": {
+        "field": "env",
+        "key": "AWS_SECRET_ACCESS_KEY",
+        "negate": true
+      }
+    },
+    {
+      "name": "metadata (production deployment): port 22/tcp absent",
+      "type": "metadata",
+      "metadata": {
+        "field": "port",
+        "key": "22/tcp",
+        "negate": true
+      }
+    }
+  ]
+}

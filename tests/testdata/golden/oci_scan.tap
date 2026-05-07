@@ -1,0 +1,11 @@
+TAP version 14
+1..1
+
+# warnings:
+#   /etc/ssl/certs/ca-certificates.crt not found — TLS connections will fail without CA certificates
+#   /etc/nsswitch.conf not found — DNS resolution may not work correctly for applications using glibc
+#   /etc/passwd not found — user lookups will fail (e.g. os/user, getpwuid)
+#   /etc/group not found — group lookups will fail
+
+# 0 binaries scanned: 0 ok, 0 with errors, 4 warnings
+ok 1 - scan: empty app dir

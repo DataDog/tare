@@ -1,0 +1,112 @@
+name: Release Prep
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version override (e.g. 0.2.0). Leave blank to auto-compute from commits."
+        required: false
+        type: string
+
+permissions: {}
+
+jobs:
+  prep:
+    name: Prepare release PR
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Install git-cliff
+        run: |
+          CLIFF_VERSION="2.12.0"
+          CLIFF_SHA512="b96f9795b826dcf75d921122279869536cd305f536639a58146d372f16c34ea80105aaad8bb3e57279c361ea18239ce39e4436a941d4d27694618b00007c528c"
+          CLIFF_URL="https://github.com/orhun/git-cliff/releases/download/v${CLIFF_VERSION}/git-cliff-${CLIFF_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+
+          curl -sfL -o /tmp/git-cliff.tar.gz "$CLIFF_URL"
+          echo "${CLIFF_SHA512}  /tmp/git-cliff.tar.gz" | sha512sum -c -
+          tar -xzf /tmp/git-cliff.tar.gz -C /tmp
+          mv /tmp/git-cliff-${CLIFF_VERSION}/git-cliff /usr/local/bin/
+          git-cliff --version
+
+      - name: Compute version
+        id: version
+        run: |
+          if [[ -n "${{ inputs.version }}" ]]; then
+            VERSION="${{ inputs.version }}"
+            echo "Using provided version: ${VERSION}"
+          else
+            VERSION=$(git-cliff --bumped-version | sed 's/^v//')
+            echo "Computed version from commits: ${VERSION}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "branch=release/v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Update CHANGELOG.md
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git-cliff --unreleased --tag "v${VERSION}" --prepend CHANGELOG.md
+          echo "=== CHANGELOG preview ==="
+          head -40 CHANGELOG.md
+
+      - name: Stage changes
+        run: git add CHANGELOG.md
+
+      - name: Get GitHub token via dd-octo-sts
+        id: octo-sts
+        uses: DataDog/dd-octo-sts-action@96a25462dbcb10ebf0bfd6e2ccc917d2ab235b9a # v1.0.4
+        with:
+          scope: DataDog/tare
+          policy: self.github.release-prep.workflow-dispatch
+
+      - name: Clean up existing release PRs
+        env:
+          GH_TOKEN: ${{ steps.octo-sts.outputs.token }}
+        run: |
+          # Close any open PRs from release branches and delete the branches.
+          for pr in $(gh pr list --json number,headRefName --jq '.[] | select(.headRefName | startswith("release/v")) | .number'); do
+            echo "Closing PR #${pr}"
+            gh pr close "$pr" --delete-branch || true
+          done
+
+      - name: Create release branch with signed commit
+        uses: DataDog/commit-headless@ad3668640012ec69186398f43d61923f6878bbbe # action/v3.2.0
+        with:
+          token: ${{ steps.octo-sts.outputs.token }}
+          command: commit
+          branch: ${{ steps.version.outputs.branch }}
+          head-sha: ${{ github.sha }}
+          create-branch: true
+          message: "chore(release): prepare v${{ steps.version.outputs.version }}"
+
+      - name: Create pull request
+        env:
+          GH_TOKEN: ${{ steps.octo-sts.outputs.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          BRANCH: ${{ steps.version.outputs.branch }}
+        run: |
+          cat > /tmp/pr-body.md << EOF
+          ## Release v${VERSION}
+
+          This PR updates CHANGELOG.md for the v${VERSION} release.
+
+          **On merge:** the release workflow will automatically build binaries, create the tag, and publish a GitHub Release.
+
+          Review the changelog below and edit if needed before merging.
+          EOF
+          sed -i 's/^          //' /tmp/pr-body.md
+
+          PR_URL=$(gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(release): prepare v${VERSION}" \
+            --body-file /tmp/pr-body.md)
+          echo "### Release PR" >> "$GITHUB_STEP_SUMMARY"
+          echo "${PR_URL}" >> "$GITHUB_STEP_SUMMARY"

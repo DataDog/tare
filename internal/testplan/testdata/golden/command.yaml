@@ -1,0 +1,34 @@
+schema_version: 1
+
+commands:
+  - name: prints version
+    run: ["/app/myservice", "--version"]
+    exit: 0
+    stdout: ["v\\d+\\.\\d+\\.\\d+"]
+    regex: true
+
+  - name: shared libraries resolve
+    run: ["ldd", "/app/myservice"]
+    exit: 0
+    not:
+      stdout: ["not found"]
+
+  - name: config validates
+    run: ["/app/myservice", "--validate-config"]
+    exit: 0
+    not:
+      stderr: ["FATAL", "panic"]
+
+  - name: starts under env
+    run: /app/myservice
+    env:
+      - key: APP_ENV
+        value: test
+    exit: 0
+
+  - name: setup and teardown
+    setup:
+      - ["touch", "/tmp/marker"]
+    run: ["stat", "/tmp/marker"]
+    teardown:
+      - ["rm", "-f", "/tmp/marker"]

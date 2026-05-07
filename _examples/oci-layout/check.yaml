@@ -1,0 +1,35 @@
+schema_version: 1
+
+# Shared check config for the OCI layout examples.
+# Works with both single/ and multiarch/ layouts
+# (gcr.io/distroless/static:nonroot).
+#
+# To generate the oci layouts, run make oci-layout from the _examples directory.
+#
+# Run:
+#   tare check -i ./single check.yaml
+#   tare check -i ./multiarch --platform linux/amd64 check.yaml
+#
+# Command tests are automatically skipped for OCI layouts since there
+# is no container to exec in.
+
+metadata:
+  - user: "65532"
+    workdir: /home/nonroot
+    env:
+      - key: SSL_CERT_FILE
+        value: /etc/ssl/certs/ca-certificates.crt
+
+files:
+  - path: /etc/ssl/certs/ca-certificates.crt
+
+  - path: /bin/sh
+    present: false
+
+  - path: /etc/passwd
+    contents: ["nonroot"]
+
+commands:
+  - name: this test is skipped for OCI layouts
+    run: ["echo", "hello"]
+    stdout: ["hello"]

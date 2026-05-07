@@ -1,0 +1,73 @@
+{
+  "metadataFile": "/tmp/.tare/meta.json",
+  "tests": [
+    {
+      "name": "metadata: user is app",
+      "type": "metadata",
+      "metadata": {
+        "field": "user",
+        "expected": "app"
+      }
+    },
+    {
+      "name": "metadata: entrypoint",
+      "type": "metadata",
+      "metadata": {
+        "field": "entrypoint",
+        "expected": "[\"/app/myservice\"]"
+      }
+    },
+    {
+      "name": "file: /etc/ssl/certs/ca-certificates.crt",
+      "type": "fileExistence",
+      "fileExistence": {
+        "path": "/etc/ssl/certs/ca-certificates.crt",
+        "shouldExist": true
+      }
+    },
+    {
+      "name": "file: /bin/sh",
+      "type": "fileExistence",
+      "fileExistence": {
+        "path": "/bin/sh",
+        "shouldExist": false
+      }
+    },
+    {
+      "name": "file: /etc/timezone",
+      "type": "fileExistence",
+      "fileExistence": {
+        "path": "/etc/timezone",
+        "shouldExist": true
+      }
+    },
+    {
+      "name": "file content: /etc/timezone",
+      "type": "fileContent",
+      "fileContent": {
+        "path": "/etc/timezone",
+        "expectedContents": [
+          "UTC"
+        ]
+      }
+    },
+    {
+      "name": "scan: app shared libraries resolve",
+      "type": "scan",
+      "scan": {
+        "path": "/app"
+      }
+    },
+    {
+      "name": "command: starts",
+      "type": "command",
+      "command": {
+        "command": "/app/myservice",
+        "args": [
+          "--version"
+        ],
+        "exitCode": 0
+      }
+    }
+  ]
+}

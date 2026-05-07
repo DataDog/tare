@@ -1,0 +1,18 @@
+schema_version: 1
+
+files:
+  - path: /etc/timezone
+    contents: ["UTC"]
+
+  - path: /app/config.yaml
+    not:
+      contents: ["password:", "secret:"]
+
+  - path: /app/version.txt
+    contents: ["^v\\d+\\.\\d+"]
+    regex: true
+
+  - path: /app/banner.txt
+    contents:
+      - "Copyright Datadog"
+      - {match: "Build [0-9a-f]{7}"}
