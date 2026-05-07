@@ -3,6 +3,7 @@ package testexec
 import (
 	"bytes"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -212,4 +213,157 @@ func testMetadata(t *testing.T, buf *bytes.Buffer) {
 	}
 
 	Run(buf, plan, meta, Options{FS: fsys})
+}
+
+func TestLooksBinary(t *testing.T) {
+	cases := []struct {
+		name    string
+		content []byte
+		want    bool
+	}{
+		{"empty", nil, false},
+		{"short text", []byte("hello world"), false},
+		{"text with high bytes", []byte("héllo wörld"), false},
+		{"single nul", []byte("hello\x00world"), true},
+		{"nul beyond sniff window", append(bytes.Repeat([]byte("a"), binarySniffLimit+10), 0), false},
+		{"nul inside sniff window", append(bytes.Repeat([]byte("a"), binarySniffLimit-10), 0), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := looksBinary(tc.content); got != tc.want {
+				t.Errorf("looksBinary = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCappedWriter(t *testing.T) {
+	t.Run("under cap", func(t *testing.T) {
+		w := &cappedWriter{cap: 100}
+		n, err := w.Write([]byte("hello"))
+		if n != 5 || err != nil {
+			t.Fatalf("Write = (%d, %v), want (5, nil)", n, err)
+		}
+		if w.total != 5 || w.buf.Len() != 5 {
+			t.Errorf("total=%d, buf=%d, want total=5, buf=5", w.total, w.buf.Len())
+		}
+	})
+	t.Run("over cap drops bytes but reports full write", func(t *testing.T) {
+		w := &cappedWriter{cap: 10}
+		n, err := w.Write([]byte("0123456789ABCDEF"))
+		if n != 16 || err != nil {
+			t.Fatalf("Write = (%d, %v), want (16, nil)", n, err)
+		}
+		if w.buf.Len() != 10 {
+			t.Errorf("buf=%d, want 10", w.buf.Len())
+		}
+		if w.total != 16 {
+			t.Errorf("total=%d, want 16", w.total)
+		}
+		if got := w.buf.String(); got != "0123456789" {
+			t.Errorf("captured = %q, want %q", got, "0123456789")
+		}
+	})
+	t.Run("multiple writes past cap accumulate total", func(t *testing.T) {
+		w := &cappedWriter{cap: 5}
+		w.Write([]byte("hello"))
+		w.Write([]byte(" world"))
+		w.Write([]byte("!!!"))
+		if w.buf.String() != "hello" {
+			t.Errorf("captured = %q", w.buf.String())
+		}
+		if w.total != 14 {
+			t.Errorf("total = %d, want 14", w.total)
+		}
+	})
+}
+
+func TestFormatBody(t *testing.T) {
+	cases := []struct {
+		name     string
+		label    string
+		captured []byte
+		total    int
+		want     string
+	}{
+		{
+			name: "empty",
+			want: "--- stdout (empty) ---",
+		},
+		{
+			name:     "short text",
+			captured: []byte("hello\n"),
+			total:    6,
+			want:     "--- stdout (6 bytes) ---\nhello",
+		},
+		{
+			name:     "binary",
+			captured: []byte("\x7fELF\x00\x01\x01"),
+			total:    7,
+			want:     "--- stdout (7 bytes, binary) ---",
+		},
+		{
+			name:     "binary with capture cap exceeded",
+			captured: []byte("\x7fELF\x00\x01\x01"),
+			total:    1024,
+			want:     "--- stdout (1024 bytes, binary, 1017 dropped) ---",
+		},
+		{
+			name:     "render-truncated text",
+			captured: bytes.Repeat([]byte("a"), diagnosticBodyLimit+50),
+			total:    diagnosticBodyLimit + 50,
+		},
+		{
+			name:     "capture-truncated only",
+			captured: []byte("hello"),
+			total:    1024,
+			want:     "--- stdout (1024 bytes, 1019 dropped) ---\nhello",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := formatBody("stdout", tc.captured, tc.total)
+			if tc.want == "" {
+				// Render-truncated case: spot-check the heading and shape
+				// rather than reproducing the giant body string here.
+				wantHead := fmt.Sprintf("--- stdout (%d bytes, %d truncated) ---", tc.total, tc.total-diagnosticBodyLimit)
+				if !strings.HasPrefix(got, wantHead+"\n") {
+					t.Errorf("missing/wrong heading\ngot prefix: %q\nwant prefix: %q", got[:min(len(got), len(wantHead)+1)], wantHead)
+				}
+				if !strings.Contains(got, "\n... [truncated] ...\n") {
+					t.Error("missing truncation marker")
+				}
+				return
+			}
+			if got != tc.want {
+				t.Errorf("\ngot:\n%s\n\nwant:\n%s", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMatchPatternsBinary(t *testing.T) {
+	t.Run("binary content with patterns errors clearly", func(t *testing.T) {
+		err := matchPatterns("stdout", []byte("\x7fELF\x00binary"), []string{"foo"}, nil)
+		if err == nil || !strings.Contains(err.Error(), "binary") {
+			t.Errorf("err = %v, want error containing 'binary'", err)
+		}
+	})
+	t.Run("binary content with no patterns is fine", func(t *testing.T) {
+		if err := matchPatterns("stdout", []byte("\x00\x01\x02"), nil, nil); err != nil {
+			t.Errorf("err = %v, want nil", err)
+		}
+	})
+	t.Run("text content matches normally", func(t *testing.T) {
+		if err := matchPatterns("stdout", []byte("hello world"), []string{"hello"}, nil); err != nil {
+			t.Errorf("err = %v, want nil", err)
+		}
+	})
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
