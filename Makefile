@@ -1,5 +1,6 @@
 GOARCH ?= $(shell go env GOARCH)
 GOOS ?= linux
+HOST_ARCH := $(shell go env GOHOSTARCH)
 VERSION ?= dev
 LDFLAGS := -s -w -X main.version=$(VERSION)
 TAR ?= tar
@@ -14,19 +15,21 @@ TOYBOX_VERSION := 0.8.13
 TOYBOX_SHA256_amd64 := 8c98795a15db31ea55c8065fed379db3669766b7a714c46b009d8bfb87b25ffd
 TOYBOX_SHA256_arm64 := b3508e5f51a0d429c1bda9d500d98d97dc0b86571762eeb099495eb238a8c52a
 
-# Derived
-TOYBOX_ARCH_$(GOARCH) := $(if $(filter amd64,$(GOARCH)),x86_64,aarch64)
-TOYBOX_ARCH := $(TOYBOX_ARCH_$(GOARCH))
-TOYBOX_SHA256 := $(TOYBOX_SHA256_$(GOARCH))
+# Toybox release-filename suffix per Go arch
+TOYBOX_TARGET_amd64 := x86_64
+TOYBOX_TARGET_arm64 := aarch64
 
 # Paths
 HARNESS_DIR := harness/linux-$(GOARCH)
 DOWNLOAD_DIR := .cache/downloads
-
-# URLs
-TOYBOX_URL := https://landley.net/toybox/bin/toybox-$(TOYBOX_ARCH)
+APPLETS_FILE := .cache/toybox-applets.txt
 
 .DEFAULT_GOAL := tare
+
+# Delete target files when their recipe fails — without this, a partial
+# write (e.g., a redirected stdout) leaves an up-to-date but corrupt
+# artifact that poisons subsequent builds.
+.DELETE_ON_ERROR:
 
 .PHONY: tare harness harness-arm64 harness-amd64 release clean
 
@@ -35,17 +38,22 @@ tare: harness
 
 harness: harness-arm64 harness-amd64
 
-harness-arm64:
+harness-arm64: $(APPLETS_FILE)
 	@$(MAKE) harness-arch GOARCH=arm64
 
-harness-amd64:
+harness-amd64: $(APPLETS_FILE)
 	@$(MAKE) harness-arch GOARCH=amd64
 
-harness-arch: $(HARNESS_DIR)/bin/toybox $(HARNESS_DIR)/bin/tare-tool
-	@# Ensure toybox applet symlinks exist (idempotent).
-	@for applet in $$(docker run --rm -v $$(pwd)/$(HARNESS_DIR)/bin/toybox:/usr/local/bin/toybox:ro gcr.io/distroless/static:nonroot toybox 2>/dev/null || $(HARNESS_DIR)/bin/toybox 2>/dev/null); do \
-		[ "$$applet" = "toybox" ] || [ "$$applet" = "tare-tool" ] || ln -sf toybox $(HARNESS_DIR)/bin/$$applet 2>/dev/null; \
-	done
+harness-arch: $(HARNESS_DIR)/bin/toybox $(HARNESS_DIR)/bin/tare-tool $(APPLETS_FILE)
+	@# Symlink each toybox applet next to the toybox binary. The applet list
+	@# is enumerated once at top level (see $(APPLETS_FILE)) using the host
+	@# arch; toybox 0.8.13 ships an identical applet set across architectures.
+	@# Cross-arch enumeration was the source of a silent failure that shipped
+	@# a harness with no applet symlinks.
+	@while read applet; do \
+		case "$$applet" in toybox|tare-tool|"") continue ;; esac; \
+		ln -sf toybox $(HARNESS_DIR)/bin/$$applet; \
+	done < $(APPLETS_FILE)
 	$(call require-gnu-tar)
 	@# Build a gzipped tarball of the harness with a tmp/.tare/ prefix.
 	@# This tarball is go:embed'd into the tare binary and piped to
@@ -64,15 +72,35 @@ harness-arch: $(HARNESS_DIR)/bin/toybox $(HARNESS_DIR)/bin/tare-tool
 
 # --- toybox ---
 
-$(DOWNLOAD_DIR)/toybox-$(GOARCH):
+$(DOWNLOAD_DIR)/toybox-%:
 	@mkdir -p $(DOWNLOAD_DIR)
-	curl -sfL -o $@ $(TOYBOX_URL)
-	@echo "$(TOYBOX_SHA256)  $@" | shasum -a 256 -c -
+	curl -sfL -o $@ https://landley.net/toybox/bin/toybox-$(TOYBOX_TARGET_$*)
+	@echo "$(TOYBOX_SHA256_$*)  $@" | shasum -a 256 -c -
+	chmod +x $@
 
 $(HARNESS_DIR)/bin/toybox: $(DOWNLOAD_DIR)/toybox-$(GOARCH)
 	@mkdir -p $(HARNESS_DIR)/bin
 	cp $< $@
 	chmod +x $@
+
+# Enumerate toybox applets once using the host-arch binary. Pinning
+# --platform=linux/$(HOST_ARCH) avoids cross-arch exec inside the
+# container; every host has at least one matching toybox build.
+# Toybox prints applets whitespace-separated across multiple lines —
+# we normalize to one-per-line so the count guard below is meaningful
+# and the read loop in harness-arch is straightforward.
+$(APPLETS_FILE): $(DOWNLOAD_DIR)/toybox-$(HOST_ARCH)
+	@mkdir -p $(@D)
+	docker run --rm --platform=linux/$(HOST_ARCH) \
+		-v $(CURDIR)/$<:/usr/local/bin/toybox:ro \
+		gcr.io/distroless/static:nonroot \
+		toybox | tr -s '[:space:]' '\n' | sed '/^$$/d' > $@
+	@count=$$(wc -l < $@ | tr -d ' '); \
+	if [ "$$count" -lt 100 ]; then \
+		echo "ERROR: toybox enumerated $$count applets (expected >=100); aborting" >&2; \
+		exit 1; \
+	fi; \
+	echo "Enumerated $$count toybox applets -> $@"
 
 # --- tare-tool ---
 
