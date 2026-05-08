@@ -51,6 +51,13 @@ func (r *Runtime) NewSession(opts SessionOpts) (*Session, error) {
 	if opts.Verbose {
 		fmt.Fprintf(os.Stderr, "creating container from %s...\n", opts.Image)
 	}
+	// Prepend the harness PATH so tare-tool and toybox applets resolve
+	// inside the container. User-supplied entries from runtime.env follow,
+	// and docker --env semantics are last-write-wins per key — so a
+	// user-provided PATH overrides this default cleanly.
+	env := []string{"PATH=" + HarnessBinDir + ":" + DefaultContainerPATH}
+	env = append(env, opts.Env...)
+
 	id, err := r.create(createOpts{
 		Image:    opts.Image,
 		Platform: platform,
@@ -59,7 +66,7 @@ func (r *Runtime) NewSession(opts SessionOpts) (*Session, error) {
 		CapDrop:  opts.CapDrop,
 		CapAdd:   opts.CapAdd,
 		Binds:    opts.Binds,
-		Env:      opts.Env,
+		Env:      env,
 		EnvFile:  opts.EnvFile,
 	})
 	if err != nil {

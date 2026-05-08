@@ -361,6 +361,220 @@ func TestMatchPatternsBinary(t *testing.T) {
 	})
 }
 
+func TestUpsertEnv(t *testing.T) {
+	cases := []struct {
+		name  string
+		env   []string
+		key   string
+		value string
+		want  []string
+	}{
+		{
+			name:  "key absent — appends",
+			env:   []string{"FOO=1", "BAR=2"},
+			key:   "BAZ",
+			value: "3",
+			want:  []string{"FOO=1", "BAR=2", "BAZ=3"},
+		},
+		{
+			name:  "key present — replaces in place",
+			env:   []string{"FOO=1", "PATH=/old", "BAR=2"},
+			key:   "PATH",
+			value: "/new",
+			want:  []string{"FOO=1", "PATH=/new", "BAR=2"},
+		},
+		{
+			name:  "first occurrence wins on replace",
+			env:   []string{"PATH=/a", "FOO=1", "PATH=/b"},
+			key:   "PATH",
+			value: "/c",
+			want:  []string{"PATH=/c", "FOO=1", "PATH=/b"},
+		},
+		{
+			name:  "empty value preserved",
+			env:   []string{"FOO=1"},
+			key:   "BAR",
+			value: "",
+			want:  []string{"FOO=1", "BAR="},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := upsertEnv(append([]string(nil), tc.env...), tc.key, tc.value)
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("got[%d] = %q, want %q", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestEnvValue(t *testing.T) {
+	cases := []struct {
+		name string
+		env  []string
+		key  string
+		want string
+	}{
+		{"present", []string{"FOO=1", "BAR=2"}, "BAR", "2"},
+		{"absent", []string{"FOO=1"}, "BAR", ""},
+		{"first wins on duplicate", []string{"PATH=/a", "PATH=/b"}, "PATH", "/a"},
+		{"empty value", []string{"FOO="}, "FOO", ""},
+		{"key prefix not key", []string{"FOOBAR=1"}, "FOO", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := envValue(tc.env, tc.key); got != tc.want {
+				t.Errorf("envValue(%v, %q) = %q, want %q", tc.env, tc.key, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLookPathIn(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "tool")
+	nonExe := filepath.Join(dir, "data")
+	if err := os.WriteFile(exe, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(nonExe, []byte("not executable"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("name with slash returned as-is", func(t *testing.T) {
+		got, err := lookPathIn("/abs/path/tool", "/anywhere")
+		if err != nil || got != "/abs/path/tool" {
+			t.Errorf("got (%q, %v), want (%q, nil)", got, err, "/abs/path/tool")
+		}
+	})
+	t.Run("found in path", func(t *testing.T) {
+		got, err := lookPathIn("tool", "/nope:"+dir)
+		if err != nil {
+			t.Fatalf("err = %v", err)
+		}
+		if got != exe {
+			t.Errorf("got %q, want %q", got, exe)
+		}
+	})
+	t.Run("non-executable skipped", func(t *testing.T) {
+		_, err := lookPathIn("data", dir)
+		if err == nil {
+			t.Error("expected ErrNotFound")
+		}
+	})
+	t.Run("not found returns ErrNotFound", func(t *testing.T) {
+		_, err := lookPathIn("absent", "/nope:/also-nope")
+		if err == nil {
+			t.Error("expected error")
+		}
+	})
+}
+
+func TestStripPATH(t *testing.T) {
+	cases := []struct {
+		name  string
+		path  string
+		entry string
+		want  string
+	}{
+		{
+			name:  "entry not present",
+			path:  "/usr/local/bin:/usr/bin:/bin",
+			entry: "/tmp/.tare/bin",
+			want:  "/usr/local/bin:/usr/bin:/bin",
+		},
+		{
+			name:  "entry at start",
+			path:  "/tmp/.tare/bin:/usr/local/bin:/usr/bin:/bin",
+			entry: "/tmp/.tare/bin",
+			want:  "/usr/local/bin:/usr/bin:/bin",
+		},
+		{
+			name:  "entry in middle",
+			path:  "/usr/local/bin:/tmp/.tare/bin:/usr/bin:/bin",
+			entry: "/tmp/.tare/bin",
+			want:  "/usr/local/bin:/usr/bin:/bin",
+		},
+		{
+			name:  "entry at end",
+			path:  "/usr/local/bin:/usr/bin:/bin:/tmp/.tare/bin",
+			entry: "/tmp/.tare/bin",
+			want:  "/usr/local/bin:/usr/bin:/bin",
+		},
+		{
+			name:  "entry duplicated",
+			path:  "/tmp/.tare/bin:/usr/bin:/tmp/.tare/bin",
+			entry: "/tmp/.tare/bin",
+			want:  "/usr/bin",
+		},
+		{
+			name:  "empty path",
+			path:  "",
+			entry: "/tmp/.tare/bin",
+			want:  "",
+		},
+		{
+			name:  "only the entry",
+			path:  "/tmp/.tare/bin",
+			entry: "/tmp/.tare/bin",
+			want:  "",
+		},
+		{
+			name:  "preserves empty PATH segments",
+			path:  ":/usr/bin:",
+			entry: "/tmp/.tare/bin",
+			want:  ":/usr/bin:",
+		},
+		{
+			name:  "exact match only — does not strip prefix matches",
+			path:  "/tmp/.tare/bin/extra:/tmp/.tare/bin",
+			entry: "/tmp/.tare/bin",
+			want:  "/tmp/.tare/bin/extra",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := stripPATH(tc.path, tc.entry)
+			if got != tc.want {
+				t.Errorf("stripPATH(%q, %q) = %q, want %q", tc.path, tc.entry, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestExecCommandResolvesBareNameAgainstCustomEnv verifies that when
+// spec.Env supplies a PATH, the bare command name is resolved against
+// that PATH rather than the host process's PATH. This is the wrinkle
+// that originally let toybox sh shadow the image's sh under
+// `harness: false` — the strip propagated to the child but exec.Command
+// had already done LookPath against the parent's PATH at construction.
+func TestExecCommandResolvesBareNameAgainstCustomEnv(t *testing.T) {
+	dir := t.TempDir()
+	tool := filepath.Join(dir, "tooltest")
+	script := []byte("#!/bin/sh\necho FROM_CUSTOM_PATH\n")
+	if err := os.WriteFile(tool, script, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// The bare name "tooltest" is not in the host's PATH. Without our
+	// own LookPath against spec.Env's PATH, exec.Command resolves it
+	// against the host's PATH, fails, and execCommand returns the
+	// "executable file not found" exec error.
+	spec := &testplan.CommandSpec{
+		Command:        "tooltest",
+		Env:            []testplan.KV{{Key: "PATH", Value: dir}},
+		ExpectedOutput: []string{"FROM_CUSTOM_PATH"},
+	}
+	if err := execCommand(spec); err != nil {
+		t.Errorf("execCommand: %v", err)
+	}
+}
+
 func TestCheckEmpty(t *testing.T) {
 	tt := true
 	ff := false

@@ -169,7 +169,7 @@ func runCheck(args []string) int {
 		fmt.Fprintf(os.Stderr, "running checks...\n")
 	}
 
-	exitCode, err := sess.Exec(container.ExecOpts{}, "tare-tool", "run-tests", "/tmp/tare-plan.json")
+	exitCode, err := sess.Exec(container.ExecOpts{}, container.HarnessBin("tare-tool"), "run-tests", "/tmp/tare-plan.json")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1

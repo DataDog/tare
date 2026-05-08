@@ -167,7 +167,7 @@ func runScan(args []string) int {
 
 	var reports []*scan.Report
 	for i, entry := range entries {
-		cmd := []string{"tare-tool", "scan", "--format", "json"}
+		cmd := []string{container.HarnessBin("tare-tool"), "scan", "--format", "json"}
 		if i > 0 {
 			cmd = append(cmd, "--no-runtime")
 		}

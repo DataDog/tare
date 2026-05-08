@@ -211,6 +211,28 @@ commands:
 
 `exit:` defaults to `0`. Omit it for "should succeed"; set it explicitly only when the command is expected to fail with a specific code.
 
+### `harness: false`
+
+By default, the tare harness directory is on `PATH` for command tests, so toybox applets and `tare-tool` resolve via bare names. Set `harness: false` to strip the harness from `PATH` for a single command — useful when you need the image's GNU coreutils (e.g., `df --local`, `xargs -I`) rather than toybox's BSD-style ones:
+
+```yaml
+commands:
+  - name: world-writable check (needs GNU find/xargs)
+    run:
+      - sh
+      - -c
+      - |
+        df --local -P | awk '{if (NR!=1) print $6}' \
+          | xargs -I '{}' find '{}' -xdev -type f -perm -0002 \
+          || exit 0
+    harness: false
+    stdout: { empty: true }
+```
+
+The strip applies to the bare `run:` lookup as well — so `sh` here resolves to the image's `/bin/sh` (e.g., dash or bash), not toybox's. Subprocess pipelines inside that shell then dispatch to the image's `df`, `awk`, `xargs`, `find` rather than to toybox applets.
+
+This is the surgical alternative to setting `PATH` in `tare.runtime.env` (file-wide) or in per-command `env:` (verbose, brittle to image PATH changes).
+
 ### `stdout` / `stderr` polymorphism
 
 Each accepts either:
@@ -291,6 +313,34 @@ tare:
 | `env_file` | Path to a file of `KEY=value` lines |
 
 These settings apply to every command test. They do not affect file or metadata assertions, which run against the static image.
+
+### Notes on `env` and `PATH`
+
+By default, the harness directory (`/tmp/.tare/bin`) is prepended to the container's `PATH` so toybox applets and `tare-tool` resolve in command tests. If you set `PATH` in `tare.runtime.env`, your value wins — the harness is not silently re-prepended. This is the right behavior when, for example, you want your commands to resolve the image's GNU coreutils rather than toybox's BSD-style ones:
+
+```yaml
+tare:
+  runtime:
+    env:
+      - key: PATH
+        value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+```
+
+Per-command `env:` (under `commands[].env`) wins over `tare.runtime.env`, so a single command can opt out of an otherwise-shared PATH:
+
+```yaml
+tare:
+  runtime:
+    env:
+      - key: PATH
+        value: /custom/path
+commands:
+  - name: uses image PATH
+    run: ["/bin/sh", "-c", "..."]
+    env:
+      - key: PATH
+        value: /usr/local/bin:/usr/bin:/bin
+```
 
 ## Cross-cutting: `not:`
 

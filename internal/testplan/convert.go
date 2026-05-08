@@ -230,6 +230,7 @@ func appendCommand(p *Plan, c *config.CommandAssertion, names *nameDedup) {
 	}
 	stdoutEmpty := emptyFlag(c.Stdout.Empty, notStdout.Empty)
 	stderrEmpty := emptyFlag(c.Stderr.Empty, notStderr.Empty)
+	noHarness := c.Harness != nil && !*c.Harness
 
 	var env []KV
 	for _, e := range c.Env {
@@ -253,6 +254,7 @@ func appendCommand(p *Plan, c *config.CommandAssertion, names *nameDedup) {
 			ExcludedError:  excludedErr,
 			StdoutEmpty:    stdoutEmpty,
 			StderrEmpty:    stderrEmpty,
+			NoHarness:      noHarness,
 			Setup:          c.Setup,
 			Teardown:       c.Teardown,
 		},
