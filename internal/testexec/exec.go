@@ -2,6 +2,7 @@
 package testexec
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +18,26 @@ import (
 	"github.com/DataDog/tare/internal/scan"
 	"github.com/DataDog/tare/internal/testplan"
 )
+
+// diagnosticBodyLimit is the per-stream byte budget for failure diagnostics.
+// Streams longer than this are rendered as head + tail with a truncation
+// marker in between.
+const diagnosticBodyLimit = 2048
+
+// binarySniffLimit caps how many leading bytes are inspected for NUL when
+// classifying content as binary. Matches git's heuristic.
+const binarySniffLimit = 8000
+
+// streamCaptureCap bounds how many bytes of a command's stdout/stderr we
+// hold in memory. Past this, writes are silently dropped (the writing
+// process never sees a short write) but the dropped count is reported in
+// failure diagnostics.
+const streamCaptureCap = 1 << 20 // 1 MiB
+
+// fileContentSizeCap is the largest file `files.contents` will load.
+// Larger files fail fast with a clear error rather than dragging the
+// runner into a multi-GiB regex match or OOMing.
+const fileContentSizeCap = 16 << 20 // 16 MiB
 
 // Options configures test execution.
 type Options struct {
@@ -346,29 +367,22 @@ func classBitSet(mode os.FileMode, class string, bit os.FileMode) bool {
 }
 
 func execFileContent(fsys rootfs.FS, spec *testplan.FileContentSpec) error {
+	info, err := fsys.Stat(spec.Path)
+	if err != nil {
+		return fmt.Errorf("stat %s: %v", spec.Path, err)
+	}
+	if info.Size() > fileContentSizeCap {
+		return fmt.Errorf("%s: %d bytes exceeds content-check cap of %d bytes; refusing to load",
+			spec.Path, info.Size(), fileContentSizeCap)
+	}
+
 	data, err := fsys.ReadFile(spec.Path)
 	if err != nil {
 		return fmt.Errorf("reading %s: %v", spec.Path, err)
 	}
-	content := string(data)
 
-	for _, pattern := range spec.ExpectedContents {
-		re, err := regexp.Compile(pattern)
-		if err != nil {
-			return fmt.Errorf("invalid regex %q: %v", pattern, err)
-		}
-		if !re.MatchString(content) {
-			return fmt.Errorf("expected pattern %q not found in %s", pattern, spec.Path)
-		}
-	}
-	for _, pattern := range spec.ExcludedContents {
-		re, err := regexp.Compile(pattern)
-		if err != nil {
-			return fmt.Errorf("invalid regex %q: %v", pattern, err)
-		}
-		if re.MatchString(content) {
-			return fmt.Errorf("excluded pattern %q found in %s", pattern, spec.Path)
-		}
+	if err := matchPatterns(spec.Path, data, spec.ExpectedContents, spec.ExcludedContents); err != nil {
+		return fmt.Errorf("%s\n%s", err, formatBody(spec.Path, data, len(data)))
 	}
 	return nil
 }
@@ -436,9 +450,10 @@ func execCommand(spec *testplan.CommandSpec) error {
 	if len(spec.Env) > 0 {
 		cmd.Env = append(os.Environ(), envStrings(spec.Env)...)
 	}
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := &cappedWriter{cap: streamCaptureCap}
+	stderr := &cappedWriter{cap: streamCaptureCap}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	exitCode := 0
 	if err := cmd.Run(); err != nil {
@@ -449,17 +464,26 @@ func execCommand(spec *testplan.CommandSpec) error {
 		}
 	}
 
-	if exitCode != spec.ExitCode {
-		return fmt.Errorf("exit code: expected %d, got %d", spec.ExitCode, exitCode)
+	var failure error
+	switch {
+	case exitCode != spec.ExitCode:
+		failure = fmt.Errorf("exit code: expected %d, got %d", spec.ExitCode, exitCode)
+	default:
+		if err := matchPatterns("stdout", stdout.buf.Bytes(), spec.ExpectedOutput, spec.ExcludedOutput); err != nil {
+			failure = err
+		} else if err := matchPatterns("stderr", stderr.buf.Bytes(), spec.ExpectedError, spec.ExcludedError); err != nil {
+			failure = err
+		}
 	}
-
-	if err := matchPatterns("stdout", stdout.String(), spec.ExpectedOutput, spec.ExcludedOutput); err != nil {
-		return err
+	if failure == nil {
+		return nil
 	}
-	if err := matchPatterns("stderr", stderr.String(), spec.ExpectedError, spec.ExcludedError); err != nil {
-		return err
-	}
-	return nil
+	return fmt.Errorf("%s\nexit code: %d\n%s\n%s",
+		failure,
+		exitCode,
+		formatBody("stdout", stdout.buf.Bytes(), stdout.total),
+		formatBody("stderr", stderr.buf.Bytes(), stderr.total),
+	)
 }
 
 func envStrings(env []testplan.KV) []string {
@@ -470,13 +494,20 @@ func envStrings(env []testplan.KV) []string {
 	return out
 }
 
-func matchPatterns(label, content string, expected, excluded []string) error {
+func matchPatterns(label string, content []byte, expected, excluded []string) error {
+	if len(expected) == 0 && len(excluded) == 0 {
+		return nil
+	}
+	if looksBinary(content) {
+		return fmt.Errorf("%s: cannot match text patterns against binary content", label)
+	}
+	s := string(content)
 	for _, pattern := range expected {
 		re, err := regexp.Compile(pattern)
 		if err != nil {
 			return fmt.Errorf("invalid regex %q: %v", pattern, err)
 		}
-		if !re.MatchString(content) {
+		if !re.MatchString(s) {
 			return fmt.Errorf("expected %s pattern %q not found", label, pattern)
 		}
 	}
@@ -485,10 +516,95 @@ func matchPatterns(label, content string, expected, excluded []string) error {
 		if err != nil {
 			return fmt.Errorf("invalid regex %q: %v", pattern, err)
 		}
-		if re.MatchString(content) {
+		if re.MatchString(s) {
 			return fmt.Errorf("excluded %s pattern %q found", label, pattern)
 		}
 	}
 	return nil
+}
+
+// cappedWriter wraps a bytes.Buffer with a hard byte cap. Writes past the
+// cap are silently dropped — Write always returns len(p), nil so the
+// writing process never sees a short write and never blocks on a full
+// pipe. Total counts every byte that was ever offered, including dropped
+// bytes, so callers can report "captured N of M".
+type cappedWriter struct {
+	buf   bytes.Buffer
+	cap   int
+	total int
+}
+
+func (w *cappedWriter) Write(p []byte) (int, error) {
+	w.total += len(p)
+	remaining := w.cap - w.buf.Len()
+	if remaining <= 0 {
+		return len(p), nil
+	}
+	if len(p) <= remaining {
+		w.buf.Write(p)
+		return len(p), nil
+	}
+	w.buf.Write(p[:remaining])
+	return len(p), nil
+}
+
+// formatBody renders captured bytes as a TAP-friendly diagnostic block.
+//
+//   - captured is what the runner has in memory.
+//   - total is the original byte count from the source. May exceed
+//     len(captured) when capture was capped (commands) or when an
+//     undersized read was performed (files). Equal to len(captured)
+//     when the whole source fit.
+//
+// Binary content (NUL byte in the first binarySniffLimit bytes) is
+// rendered as a heading-only line — dumping binary into TAP comments
+// garbles the log and rarely helps debugging.
+//
+// Otherwise, content longer than diagnosticBodyLimit is shown as
+// head + tail with a "[truncated]" marker between, with sizes in the
+// heading.
+func formatBody(label string, captured []byte, total int) string {
+	n := len(captured)
+	if total == 0 {
+		return fmt.Sprintf("--- %s (empty) ---", label)
+	}
+
+	dropped := total - n
+	if dropped < 0 {
+		dropped = 0
+	}
+
+	binary := looksBinary(captured)
+
+	parts := []string{fmt.Sprintf("%d bytes", total)}
+	var body string
+	switch {
+	case binary:
+		parts = append(parts, "binary")
+	case n > diagnosticBodyLimit:
+		half := diagnosticBodyLimit / 2
+		body = string(captured[:half]) + "\n... [truncated] ...\n" + string(captured[n-half:])
+		parts = append(parts, fmt.Sprintf("%d truncated", n-2*half))
+	default:
+		body = string(captured)
+	}
+	if dropped > 0 {
+		parts = append(parts, fmt.Sprintf("%d dropped", dropped))
+	}
+
+	heading := fmt.Sprintf("--- %s (%s) ---", label, strings.Join(parts, ", "))
+	body = strings.TrimRight(body, "\n")
+	if body == "" {
+		return heading
+	}
+	return heading + "\n" + body
+}
+
+func looksBinary(content []byte) bool {
+	sniff := content
+	if len(sniff) > binarySniffLimit {
+		sniff = sniff[:binarySniffLimit]
+	}
+	return bytes.IndexByte(sniff, 0) >= 0
 }
 
