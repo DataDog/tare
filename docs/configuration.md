@@ -375,6 +375,10 @@ tare check -i myapp:latest base.yaml app.yaml
 ```
 
 - `metadata`, `files`, `commands`, `scan` lists are concatenated across configs.
-- `tare.runtime` is shallow-merged (last config wins per field).
+- `tare.runtime` is merged with per-field rules:
+  - **Scalars** (`user`, `env_file`) — overlay value wins when set.
+  - **Capability lists** (`cap_drop`, `cap_add`) — concatenated, with duplicate strings dropped.
+  - **Binds** — concatenated as-is. Conflicting mounts (same container target, different sources) are not detected; let docker error out at runtime if you mis-stack them.
+  - **`env`** — concatenated, then deduplicated by key with overlay winning. So a base `PATH` and an overlay `FOO` accumulate, but an overlay `PATH` replaces the base `PATH` in place.
 
-A common pattern is a shared base config for distroless invariants plus an app-specific overlay.
+A common pattern is a shared base config for distroless invariants (capabilities, common envs) plus an app-specific overlay that adds its own env entries or overrides a single one.

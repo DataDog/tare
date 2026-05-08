@@ -723,6 +723,70 @@ func TestMergeRuntimeOverlay(t *testing.T) {
 	}
 }
 
+func TestMergeRuntimeListsAccumulate(t *testing.T) {
+	base := &Config{
+		SchemaVersion: 1,
+		Tare: &TareConfig{Runtime: &RuntimeOptions{
+			CapDrop: []string{"ALL"},
+			CapAdd:  []string{"NET_BIND_SERVICE"},
+			Binds:   []string{"/host/a:/cont/a:ro"},
+		}},
+	}
+	overlay := &Config{
+		SchemaVersion: 1,
+		Tare: &TareConfig{Runtime: &RuntimeOptions{
+			CapDrop: []string{"ALL", "SYS_ADMIN"}, // ALL is duplicate, dedups
+			CapAdd:  []string{"SYS_PTRACE"},
+			Binds:   []string{"/host/b:/cont/b:rw"},
+		}},
+	}
+	rt := Merge(base, overlay).Tare.Runtime
+	if got := rt.CapDrop; len(got) != 2 || got[0] != "ALL" || got[1] != "SYS_ADMIN" {
+		t.Errorf("cap_drop = %v, want [ALL SYS_ADMIN]", got)
+	}
+	if got := rt.CapAdd; len(got) != 2 || got[0] != "NET_BIND_SERVICE" || got[1] != "SYS_PTRACE" {
+		t.Errorf("cap_add = %v, want [NET_BIND_SERVICE SYS_PTRACE]", got)
+	}
+	if got := rt.Binds; len(got) != 2 {
+		t.Errorf("binds = %v, want both preserved", got)
+	}
+}
+
+func TestMergeRuntimeEnvKeyDedup(t *testing.T) {
+	base := &Config{
+		SchemaVersion: 1,
+		Tare: &TareConfig{Runtime: &RuntimeOptions{
+			Env: []KV{
+				{Key: "PATH", Value: "/base/path"},
+				{Key: "FOO", Value: "1"},
+			},
+		}},
+	}
+	overlay := &Config{
+		SchemaVersion: 1,
+		Tare: &TareConfig{Runtime: &RuntimeOptions{
+			Env: []KV{
+				{Key: "PATH", Value: "/overlay/path"},
+				{Key: "BAR", Value: "2"},
+			},
+		}},
+	}
+	rt := Merge(base, overlay).Tare.Runtime
+	want := []KV{
+		{Key: "PATH", Value: "/overlay/path"}, // overlay replaces base in place
+		{Key: "FOO", Value: "1"},              // unique to base, preserved
+		{Key: "BAR", Value: "2"},              // unique to overlay, appended
+	}
+	if len(rt.Env) != len(want) {
+		t.Fatalf("env = %v, want %v", rt.Env, want)
+	}
+	for i := range want {
+		if rt.Env[i] != want[i] {
+			t.Errorf("env[%d] = %v, want %v", i, rt.Env[i], want[i])
+		}
+	}
+}
+
 func TestMergeNilConfig(t *testing.T) {
 	a := &Config{
 		SchemaVersion: 1,
