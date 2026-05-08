@@ -386,29 +386,76 @@ func Merge(configs ...*Config) *Config {
 	return merged
 }
 
+// mergeRuntime composes two runtime blocks with per-field rules:
+//
+//   - user, env_file: scalar fields, overlay value wins when non-empty.
+//   - cap_drop, cap_add: lists, concatenated with duplicate strings
+//     dropped (docker accepts duplicates but they're noise).
+//   - binds: list, concatenated as-is. Conflicting binds (same container
+//     mount target, different sources) are the user's problem — docker
+//     will error or last-wins depending on runtime.
+//   - env: list, concatenated then deduplicated by KEY with overlay
+//     winning. So a base PATH and an overlay FOO accumulate, but an
+//     overlay PATH replaces the base PATH in place.
 func mergeRuntime(a, b *RuntimeOptions) *RuntimeOptions {
 	if a == nil {
-		return b
+		cp := *b
+		return &cp
 	}
 	if b.User != "" {
 		a.User = b.User
 	}
-	if len(b.CapDrop) > 0 {
-		a.CapDrop = b.CapDrop
-	}
-	if len(b.CapAdd) > 0 {
-		a.CapAdd = b.CapAdd
-	}
-	if len(b.Binds) > 0 {
-		a.Binds = b.Binds
-	}
-	if len(b.Env) > 0 {
-		a.Env = b.Env
-	}
 	if b.EnvFile != "" {
 		a.EnvFile = b.EnvFile
 	}
+	a.CapDrop = dedupAppendStrings(a.CapDrop, b.CapDrop)
+	a.CapAdd = dedupAppendStrings(a.CapAdd, b.CapAdd)
+	a.Binds = append(a.Binds, b.Binds...)
+	a.Env = mergeKV(a.Env, b.Env)
 	return a
+}
+
+// dedupAppendStrings appends entries from add to base, skipping any value
+// already present in base (or earlier in add). Order is preserved: base
+// entries first, then new add entries in their original order.
+func dedupAppendStrings(base, add []string) []string {
+	if len(add) == 0 {
+		return base
+	}
+	seen := make(map[string]bool, len(base)+len(add))
+	for _, v := range base {
+		seen[v] = true
+	}
+	for _, v := range add {
+		if seen[v] {
+			continue
+		}
+		seen[v] = true
+		base = append(base, v)
+	}
+	return base
+}
+
+// mergeKV composes two KV lists with overlay-wins-per-key semantics:
+// every entry in add either replaces an entry with the same Key in base
+// (in place, preserving position) or appends to the end of base.
+func mergeKV(base, add []KV) []KV {
+	if len(add) == 0 {
+		return base
+	}
+	indexByKey := make(map[string]int, len(base))
+	for i, kv := range base {
+		indexByKey[kv.Key] = i
+	}
+	for _, kv := range add {
+		if i, ok := indexByKey[kv.Key]; ok {
+			base[i] = kv
+			continue
+		}
+		indexByKey[kv.Key] = len(base)
+		base = append(base, kv)
+	}
+	return base
 }
 
 func validate(cfg *Config) error {
