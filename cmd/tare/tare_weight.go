@@ -56,7 +56,7 @@ func printTareWeight(sess *container.Session, cfg *config.Config) {
 // duSize runs du inside the container and returns the total size in KB.
 // For multiple paths, sizes are summed.
 func duSize(sess *container.Session, args ...string) (int64, bool) {
-	cmd := append([]string{"du"}, args...)
+	cmd := append([]string{container.HarnessBin("du")}, args...)
 	var stdout bytes.Buffer
 	// Ignore exit code — busybox du exits non-zero on permission errors
 	// but still prints valid totals for accessible paths.
@@ -86,7 +86,7 @@ func duSize(sess *container.Session, args ...string) (int64, bool) {
 // fileCount runs find -type f inside the container and returns the number of
 // regular files under the given paths. Returns 0 on any error.
 func fileCount(sess *container.Session, paths ...string) int64 {
-	cmd := []string{"find"}
+	cmd := []string{container.HarnessBin("find")}
 	cmd = append(cmd, paths...)
 	cmd = append(cmd, "-xdev", "-type", "f")
 	var stdout bytes.Buffer

@@ -99,6 +99,7 @@ type CommandSpec struct {
 	ExcludedError  []string   `json:"excludedError,omitempty"`
 	StdoutEmpty    *bool      `json:"stdoutEmpty,omitempty"`
 	StderrEmpty    *bool      `json:"stderrEmpty,omitempty"`
+	NoHarness      bool       `json:"noHarness,omitempty"`
 	Setup          [][]string `json:"setup,omitempty"`
 	Teardown       [][]string `json:"teardown,omitempty"`
 }

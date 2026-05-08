@@ -21,6 +21,10 @@ type containerHarness struct {
 }
 
 func newContainerHarness(t *testing.T, image string) *containerHarness {
+	return newContainerHarnessWithEnv(t, image, nil)
+}
+
+func newContainerHarnessWithEnv(t *testing.T, image string, env []string) *containerHarness {
 	t.Helper()
 
 	harnessDir := findHarnessDir(t)
@@ -37,6 +41,7 @@ func newContainerHarness(t *testing.T, image string) *containerHarness {
 		Platform: platform,
 		Pull:     "missing",
 		Harness:  harnessReader,
+		Env:      env,
 	})
 	if err != nil {
 		t.Fatalf("creating session: %v", err)
@@ -67,7 +72,7 @@ func (h *containerHarness) run(t *testing.T, cfg *config.Config) tapResult {
 	exitCode, err := h.sess.Exec(container.ExecOpts{
 		Stdout: &output,
 		Stderr: &output,
-	}, "tare-tool", "run-tests", containerPath)
+	}, container.HarnessBin("tare-tool"), "run-tests", containerPath)
 	if err != nil {
 		t.Fatalf("running tests: %v", err)
 	}
@@ -211,6 +216,95 @@ func TestContainerCommands(t *testing.T) {
 	result := h.run(t, cfg)
 	t.Logf("TAP output:\n%s", result.Output)
 	assertAllPass(t, result)
+}
+
+func TestContainerCommandHarnessOptOut(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping container integration tests in short mode")
+	}
+
+	h := newContainerHarness(t, "gcr.io/distroless/static:nonroot")
+
+	no := false
+	cfg := &config.Config{
+		SchemaVersion: 1,
+		Commands: []config.CommandAssertion{
+			{
+				Name: "default: harness on PATH",
+				Run: config.Run{Argv: []string{
+					container.HarnessBin("sh"), "-c", "echo $PATH",
+				}},
+				Stdout: pat(container.HarnessBinDir),
+			},
+			{
+				Name: "harness false: harness stripped from PATH",
+				Run: config.Run{Argv: []string{
+					container.HarnessBin("sh"), "-c", "echo $PATH",
+				}},
+				Harness: &no,
+				Not: &config.CommandNot{
+					Stdout: pat(container.HarnessBinDir),
+				},
+			},
+		},
+	}
+
+	result := h.run(t, cfg)
+	t.Logf("TAP output:\n%s", result.Output)
+	assertAllPass(t, result)
+}
+
+func TestContainerRuntimeEnvPATHPrecedence(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping container integration tests in short mode")
+	}
+
+	t.Run("default harness PATH is on PATH", func(t *testing.T) {
+		h := newContainerHarness(t, "gcr.io/distroless/static:nonroot")
+		cfg := &config.Config{
+			SchemaVersion: 1,
+			Commands: []config.CommandAssertion{
+				{
+					Name: "harness directory present in PATH",
+					Run: config.Run{Argv: []string{
+						container.HarnessBin("sh"), "-c", "echo $PATH",
+					}},
+					Stdout: pat(container.HarnessBinDir),
+				},
+			},
+		}
+		result := h.run(t, cfg)
+		t.Logf("TAP output:\n%s", result.Output)
+		assertAllPass(t, result)
+	})
+
+	t.Run("runtime.env PATH overrides harness default", func(t *testing.T) {
+		userPATH := "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+		h := newContainerHarnessWithEnv(t, "gcr.io/distroless/static:nonroot",
+			[]string{"PATH=" + userPATH})
+		cfg := &config.Config{
+			SchemaVersion: 1,
+			Commands: []config.CommandAssertion{
+				{
+					Name: "user PATH wins over harness PATH",
+					Run: config.Run{Argv: []string{
+						container.HarnessBin("sh"), "-c", "echo $PATH",
+					}},
+					// Exact match: assert the harness prefix is *not* present
+					// and the value is exactly what runtime.env requested.
+					Stdout: config.PatternList{
+						Patterns: []config.Pattern{{Value: `^` + userPATH + `\s*$`, Match: true}},
+					},
+					Not: &config.CommandNot{
+						Stdout: pat(container.HarnessPrefix),
+					},
+				},
+			},
+		}
+		result := h.run(t, cfg)
+		t.Logf("TAP output:\n%s", result.Output)
+		assertAllPass(t, result)
+	})
 }
 
 func TestContainerMetadata(t *testing.T) {

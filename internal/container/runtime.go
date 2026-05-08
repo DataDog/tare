@@ -16,6 +16,23 @@ import (
 // HarnessPrefix is the path inside the container where the tare harness is installed.
 const HarnessPrefix = "/tmp/.tare"
 
+// HarnessBinDir is the directory holding tare-tool and toybox applet
+// symlinks inside the container. Convenient for composing PATH entries.
+const HarnessBinDir = HarnessPrefix + "/bin"
+
+// HarnessBin returns the absolute container path to a tool installed in
+// the harness bin directory. Use this for any Session.Exec invocation
+// where the tool needs to resolve unambiguously, regardless of whether
+// the user has overridden PATH at runtime or per-command.
+func HarnessBin(tool string) string {
+	return HarnessBinDir + "/" + tool
+}
+
+// DefaultContainerPATH is the fallback PATH applied when the user does
+// not supply one via tare.runtime.env. The harness bin directory is
+// always prepended on top of this.
+const DefaultContainerPATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
 // Runtime wraps os/exec calls to a container runtime binary (docker, podman, nerdctl).
 type Runtime struct {
 	// Bin is the container runtime binary name or path. Defaults to "docker".
@@ -79,7 +96,7 @@ func (r *Runtime) create(opts createOpts) (string, error) {
 
 	// Override the entrypoint with tare-tool idle, which blocks on SIGTERM.
 	// The harness must be docker cp'd into the container before starting.
-	args = append(args, "--entrypoint", HarnessPrefix+"/bin/tare-tool")
+	args = append(args, "--entrypoint", HarnessBin("tare-tool"))
 	args = append(args, opts.Image)
 	args = append(args, "idle")
 
@@ -104,10 +121,11 @@ func (r *Runtime) start(id string) error {
 	return nil
 }
 
-// exec runs a command inside a container with the harness on PATH.
-// Returns the exit code.
+// exec runs a command inside the container. The container's PATH is
+// composed at session creation (see session.New), so docker exec inherits
+// it without a per-call --env PATH override — letting tare.runtime.env
+// PATH stay effective for command tests.
 func (r *Runtime) exec(opts ExecOpts, args ...string) (int, error) {
-	opts.Env = append(opts.Env, "PATH="+HarnessPrefix+"/bin:/usr/local/bin:/usr/bin:/bin")
 	return r.rawExec(opts, args)
 }
 

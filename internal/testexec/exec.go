@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -467,8 +468,33 @@ func execCommand(spec *testplan.CommandSpec) error {
 	}()
 
 	cmd := exec.Command(spec.Command, spec.Args...)
-	if len(spec.Env) > 0 {
-		cmd.Env = append(os.Environ(), envStrings(spec.Env)...)
+	if spec.NoHarness || len(spec.Env) > 0 {
+		env := os.Environ()
+		if spec.NoHarness {
+			if exe, err := os.Executable(); err == nil {
+				harnessBin := filepath.Dir(exe)
+				env = upsertEnv(env, "PATH", stripPATH(os.Getenv("PATH"), harnessBin))
+			}
+		}
+		for _, e := range spec.Env {
+			env = upsertEnv(env, e.Key, e.Value)
+		}
+		cmd.Env = env
+
+		// exec.Command resolved spec.Command via the parent's PATH at
+		// construction time, but we've now built a different env for
+		// the child. If the command is a bare name, redo the lookup
+		// against the env we actually intend to hand the child — so
+		// `harness: false` plus bare `sh` resolves to the image's sh
+		// rather than toybox sh.
+		if filepath.Base(spec.Command) == spec.Command {
+			if resolved, err := lookPathIn(spec.Command, envValue(env, "PATH")); err == nil {
+				cmd.Path = resolved
+				cmd.Err = nil
+			} else {
+				cmd.Err = err
+			}
+		}
 	}
 	stdout := &cappedWriter{cap: streamCaptureCap}
 	stderr := &cappedWriter{cap: streamCaptureCap}
@@ -630,5 +656,78 @@ func looksBinary(content []byte) bool {
 		sniff = sniff[:binarySniffLimit]
 	}
 	return bytes.IndexByte(sniff, 0) >= 0
+}
+
+// upsertEnv replaces an existing KEY=... entry in env, or appends a new
+// one if none exists. Used in place of plain append because env-var
+// lookup (Go runtime, libc, most shells) returns the first match — so
+// duplicate keys silently shadow each other rather than the second
+// overriding the first.
+func upsertEnv(env []string, key, value string) []string {
+	prefix := key + "="
+	for i, kv := range env {
+		if strings.HasPrefix(kv, prefix) {
+			env[i] = prefix + value
+			return env
+		}
+	}
+	return append(env, prefix+value)
+}
+
+// envValue returns the value of key in env, or "" if not present.
+// Returns the first match (matches Go and libc getenv semantics).
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for _, kv := range env {
+		if strings.HasPrefix(kv, prefix) {
+			return kv[len(prefix):]
+		}
+	}
+	return ""
+}
+
+// lookPathIn behaves like exec.LookPath but consults the supplied PATH
+// rather than the host process's $PATH. Names containing a separator
+// are returned unchanged (matching exec.LookPath). Empty PATH entries
+// resolve against ".", per POSIX.
+func lookPathIn(name, path string) (string, error) {
+	if strings.ContainsRune(name, '/') {
+		return name, nil
+	}
+	for _, dir := range strings.Split(path, ":") {
+		if dir == "" {
+			dir = "."
+		}
+		full := filepath.Join(dir, name)
+		info, err := os.Stat(full)
+		if err != nil {
+			continue
+		}
+		if info.IsDir() {
+			continue
+		}
+		if info.Mode()&0o111 == 0 {
+			continue
+		}
+		return full, nil
+	}
+	return "", &exec.Error{Name: name, Err: exec.ErrNotFound}
+}
+
+// stripPATH returns path with every occurrence of entry removed. Empty
+// entries (which appear in PATH when the value starts/ends with ":" or
+// has "::") are preserved — they're meaningful to the resolver (POSIX
+// treats an empty entry as "current directory"), and silently dropping
+// them would change semantics.
+func stripPATH(path, entry string) string {
+	parts := strings.Split(path, ":")
+	out := parts[:0]
+	for _, p := range parts {
+		if p == entry {
+			continue
+		}
+		out = append(out, p)
+	}
+	return strings.Join(out, ":")
 }
 

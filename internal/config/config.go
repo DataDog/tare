@@ -89,6 +89,12 @@ type CommandAssertion struct {
 	Teardown [][]string  `yaml:"teardown"`
 	Regex    bool        `yaml:"regex"`
 	Not      *CommandNot `yaml:"not"`
+	// Harness controls whether the tare harness directory is on PATH for
+	// this command. nil/true (the default) leaves it in place. Explicit
+	// false strips the harness bin directory from PATH so the command's
+	// bare names resolve to the image's binaries — e.g. GNU coreutils
+	// rather than toybox.
+	Harness *bool `yaml:"harness"`
 }
 
 // CommandNot lists output patterns that must NOT match.

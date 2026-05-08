@@ -186,6 +186,27 @@ commands:
 	}
 }
 
+func TestParseCommandHarnessFalse(t *testing.T) {
+	cfg, err := Parse([]byte(`
+schema_version: 1
+commands:
+  - name: uses image tools
+    run: ["sh", "-c", "df --local -P"]
+    harness: false
+  - name: uses harness tools
+    run: ["du", "-s", "/app"]
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cfg.Commands[0].Harness == nil || *cfg.Commands[0].Harness {
+		t.Errorf("Commands[0].Harness = %v, want explicit false", cfg.Commands[0].Harness)
+	}
+	if cfg.Commands[1].Harness != nil {
+		t.Errorf("Commands[1].Harness = %v, want nil (default)", cfg.Commands[1].Harness)
+	}
+}
+
 func TestValidateContradictoryEmptyAssertions(t *testing.T) {
 	_, err := Parse([]byte(`
 schema_version: 1
