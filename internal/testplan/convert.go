@@ -191,12 +191,15 @@ func appendFile(p *Plan, f *config.FileAssertion, names *nameDedup) {
 	// Content assertions become a separate file content test entry so the
 	// runner can distinguish "file exists with right perms" from "file
 	// exists with right contents."
-	expected := patternsToRegex(f.Contents, f.Regex)
+	expected := patternsToRegex(f.Contents.Patterns, f.Regex)
 	var excluded []string
+	var notContents config.PatternList
 	if f.Not != nil {
-		excluded = patternsToRegex(f.Not.Contents, f.Regex)
+		excluded = patternsToRegex(f.Not.Contents.Patterns, f.Regex)
+		notContents = f.Not.Contents
 	}
-	if len(expected) > 0 || len(excluded) > 0 {
+	empty := emptyFlag(f.Contents.Empty, notContents.Empty)
+	if len(expected) > 0 || len(excluded) > 0 || empty != nil {
 		p.Tests = append(p.Tests, Test{
 			Name: names.unique("file content: " + f.Path),
 			Type: TypeFileContent,
@@ -204,6 +207,7 @@ func appendFile(p *Plan, f *config.FileAssertion, names *nameDedup) {
 				Path:             f.Path,
 				ExpectedContents: expected,
 				ExcludedContents: excluded,
+				Empty:            empty,
 			},
 		})
 	}
@@ -214,13 +218,18 @@ func appendCommand(p *Plan, c *config.CommandAssertion, names *nameDedup) {
 	if c.Exit != nil {
 		exit = *c.Exit
 	}
-	expectedOut := patternsToRegex(c.Stdout, c.Regex)
-	expectedErr := patternsToRegex(c.Stderr, c.Regex)
+	expectedOut := patternsToRegex(c.Stdout.Patterns, c.Regex)
+	expectedErr := patternsToRegex(c.Stderr.Patterns, c.Regex)
 	var excludedOut, excludedErr []string
+	var notStdout, notStderr config.PatternList
 	if c.Not != nil {
-		excludedOut = patternsToRegex(c.Not.Stdout, c.Regex)
-		excludedErr = patternsToRegex(c.Not.Stderr, c.Regex)
+		excludedOut = patternsToRegex(c.Not.Stdout.Patterns, c.Regex)
+		excludedErr = patternsToRegex(c.Not.Stderr.Patterns, c.Regex)
+		notStdout = c.Not.Stdout
+		notStderr = c.Not.Stderr
 	}
+	stdoutEmpty := emptyFlag(c.Stdout.Empty, notStdout.Empty)
+	stderrEmpty := emptyFlag(c.Stderr.Empty, notStderr.Empty)
 
 	var env []KV
 	for _, e := range c.Env {
@@ -242,10 +251,33 @@ func appendCommand(p *Plan, c *config.CommandAssertion, names *nameDedup) {
 			ExcludedOutput: excludedOut,
 			ExpectedError:  expectedErr,
 			ExcludedError:  excludedErr,
+			StdoutEmpty:    stdoutEmpty,
+			StderrEmpty:    stderrEmpty,
 			Setup:          c.Setup,
 			Teardown:       c.Teardown,
 		},
 	})
+}
+
+// emptyFlag combines positive and negative {empty: true} forms into a
+// single tri-state pointer. Returns nil when neither form was used.
+// A contradictory config (positive AND negative empty assertions on the
+// same field) collapses to nil because the runtime would always fail
+// such a test anyway — but we surface that as a config-level error in
+// the validator instead, so callers should validate before converting.
+func emptyFlag(positive, negative bool) *bool {
+	switch {
+	case positive && negative:
+		return nil
+	case positive:
+		t := true
+		return &t
+	case negative:
+		f := false
+		return &f
+	default:
+		return nil
+	}
 }
 
 // patternsToRegex converts a list of config.Pattern entries into regex

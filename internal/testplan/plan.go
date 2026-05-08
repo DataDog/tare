@@ -62,10 +62,16 @@ type FileExistenceSpec struct {
 // FileContentSpec asserts file contents match or exclude patterns.
 // Patterns are regular expressions; literal patterns are pre-escaped by
 // the converter.
+//
+// Empty is tri-state: nil means no empty assertion; true means the file
+// must be exactly zero bytes; false means it must contain at least one
+// byte. Empty and the pattern lists are not mutually exclusive — both
+// may be set, in which case Empty is checked first.
 type FileContentSpec struct {
 	Path             string   `json:"path"`
 	ExpectedContents []string `json:"expectedContents,omitempty"`
 	ExcludedContents []string `json:"excludedContents,omitempty"`
+	Empty            *bool    `json:"empty,omitempty"`
 }
 
 // ScanSpec configures ELF dependency scanning on a directory.
@@ -78,6 +84,10 @@ type ScanSpec struct {
 
 // CommandSpec runs a command and asserts on its output. Output patterns
 // are regular expressions; literal patterns are pre-escaped by the converter.
+//
+// StdoutEmpty / StderrEmpty are tri-state: nil means no empty assertion;
+// true means the stream must be exactly zero bytes; false means it must
+// contain at least one byte. The empty flag is checked before patterns.
 type CommandSpec struct {
 	Command        string     `json:"command"`
 	Args           []string   `json:"args,omitempty"`
@@ -87,6 +97,8 @@ type CommandSpec struct {
 	ExcludedOutput []string   `json:"excludedOutput,omitempty"`
 	ExpectedError  []string   `json:"expectedError,omitempty"`
 	ExcludedError  []string   `json:"excludedError,omitempty"`
+	StdoutEmpty    *bool      `json:"stdoutEmpty,omitempty"`
+	StderrEmpty    *bool      `json:"stderrEmpty,omitempty"`
 	Setup          [][]string `json:"setup,omitempty"`
 	Teardown       [][]string `json:"teardown,omitempty"`
 }

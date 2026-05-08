@@ -116,7 +116,7 @@ func TestFileWithContents(t *testing.T) {
 		Files: []config.FileAssertion{
 			{
 				Path:     "/etc/timezone",
-				Contents: []config.Pattern{{Value: "UTC"}},
+				Contents: config.PatternList{Patterns: []config.Pattern{{Value: "UTC"}}},
 			},
 		},
 	}
@@ -157,7 +157,7 @@ func TestPatternLiteralEscaping(t *testing.T) {
 		Files: []config.FileAssertion{
 			{
 				Path:     "/etc/version",
-				Contents: []config.Pattern{{Value: "v1.2.3"}},
+				Contents: config.PatternList{Patterns: []config.Pattern{{Value: "v1.2.3"}}},
 			},
 		},
 	}
@@ -176,7 +176,7 @@ func TestPatternRegexFlagBypassesEscape(t *testing.T) {
 		Files: []config.FileAssertion{
 			{
 				Path:     "/etc/version",
-				Contents: []config.Pattern{{Value: `v\d+\.\d+`}},
+				Contents: config.PatternList{Patterns: []config.Pattern{{Value: `v\d+\.\d+`}}},
 				Regex:    true,
 			},
 		},
@@ -195,10 +195,10 @@ func TestPatternMatchFormBypassesEscape(t *testing.T) {
 		Files: []config.FileAssertion{
 			{
 				Path: "/etc/version",
-				Contents: []config.Pattern{
+				Contents: config.PatternList{Patterns: []config.Pattern{
 					{Value: "literal.string"},
 					{Value: `v\d+`, Match: true},
-				},
+				}},
 			},
 		},
 	}
