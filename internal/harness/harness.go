@@ -133,6 +133,12 @@ func tarFromFS(fsys harnessFS, prefix string) ([]byte, error) {
 		// Strip macOS xattrs that cause issues with docker cp.
 		header.Xattrs = nil
 
+		// Force ownership to root:0 so harness files don't trip
+		// `find -nouser`/`find -nogroup` checks against images whose
+		// /etc/passwd doesn't contain the build host's UID.
+		header.Uid, header.Gid = 0, 0
+		header.Uname, header.Gname = "root", "root"
+
 		// Ensure world-readable for nonroot containers.
 		if header.Typeflag == tar.TypeDir {
 			header.Mode |= 0o555

@@ -53,7 +53,11 @@ harness-arch: $(HARNESS_DIR)/bin/toybox $(HARNESS_DIR)/bin/tare-tool
 	@# even on scratch images that lack /tmp.
 	@# --no-xattrs: strip macOS xattrs that break docker cp.
 	@# --transform: rewrite paths so entries unpack at /tmp/.tare/.
-	$(TAR) --no-xattrs -czf internal/harness/harness-linux-$(GOARCH).tar.gz --transform 's,^\./,tmp/.tare/,' -C $(HARNESS_DIR) .
+	@# --owner/--group/--numeric-owner: force ownership to root:0 so
+	@# command tests like `find -nouser`/`find -nogroup` don't flag the
+	@# harness as unowned/ungrouped against images whose /etc/passwd
+	@# lacks the build host's UID.
+	$(TAR) --no-xattrs --owner=0 --group=0 --numeric-owner -czf internal/harness/harness-linux-$(GOARCH).tar.gz --transform 's,^\./,tmp/.tare/,' -C $(HARNESS_DIR) .
 	@git update-index --assume-unchanged internal/harness/harness-linux-$(GOARCH).tar.gz
 	@echo "Harness assembled at $(HARNESS_DIR)/"
 	@echo "  toybox:    $(TOYBOX_VERSION)"
