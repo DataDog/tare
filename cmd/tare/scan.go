@@ -150,7 +150,7 @@ func runScan(args []string) int {
 
 	if len(cfg.Scan) == 0 {
 		fmt.Fprintf(os.Stderr, "error: no scan paths found. Use --path or configure scan in a config file.\n")
-		return 1
+		return 2
 	}
 
 	// Run tare-tool scan per entry, capturing JSON to aggregate results.
@@ -183,14 +183,8 @@ func runScan(args []string) int {
 		cmd = append(cmd, entry.Path)
 
 		var stdout bytes.Buffer
-		exitCode, err := sess.Exec(container.ExecOpts{Stdout: &stdout}, cmd...)
-		if err != nil {
+		if _, err := sess.Exec(container.ExecOpts{Stdout: &stdout}, cmd...); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			return 1
-		}
-		if exitCode == 2 {
-			// Exit code 2 = tare-tool usage error (bad flags, etc.)
-			fmt.Fprintf(os.Stderr, "error: tare-tool scan failed\n%s", stdout.String())
 			return 1
 		}
 

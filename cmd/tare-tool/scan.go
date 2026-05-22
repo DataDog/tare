@@ -36,19 +36,19 @@ func runScan(args []string) int {
 		valid := map[string]bool{"json": true, "bats": true}
 		if !valid[*format] {
 			fmt.Fprintf(os.Stderr, "error: invalid format %q (use json or bats)\n", *format)
-			return 2
+			return 1
 		}
 	}
 
 	if *scanLimit <= 0 {
 		fmt.Fprintf(os.Stderr, "error: --limit must be greater than 0\n")
-		return 2
+		return 1
 	}
 
 	paths := fs.Args()
 	if len(paths) == 0 {
 		fs.Usage()
-		return 2
+		return 1
 	}
 
 	var patterns []scan.IgnorePattern
@@ -56,7 +56,7 @@ func runScan(args []string) int {
 		p, err := scan.ParseIgnorePattern(ig)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			return 2
+			return 1
 		}
 		patterns = append(patterns, p)
 	}
@@ -69,7 +69,7 @@ func runScan(args []string) int {
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "scan: %v\n", err)
-		return 2
+		return 1
 	}
 
 	switch *format {

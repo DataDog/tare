@@ -13,24 +13,24 @@ import (
 func runTests(args []string) int {
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "usage: tare-tool run-tests <plan-file>")
-		return 2
+		return 1
 	}
 
 	data, err := os.ReadFile(args[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: reading plan: %v\n", err)
-		return 2
+		return 1
 	}
 
 	var plan testplan.Plan
 	if err := json.Unmarshal(data, &plan); err != nil {
 		fmt.Fprintf(os.Stderr, "error: parsing plan: %v\n", err)
-		return 2
+		return 1
 	}
 
 	if len(plan.Tests) == 0 {
 		fmt.Fprintln(os.Stderr, "error: no tests in plan")
-		return 2
+		return 1
 	}
 
 	meta, err := loadMetadata(plan.MetadataFile)

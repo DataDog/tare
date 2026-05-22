@@ -149,7 +149,7 @@ func runCheck(args []string) int {
 		len(cfg.Scan) > 0
 	if !hasTests {
 		fmt.Fprintf(os.Stderr, "error: no tests configured\n\nUse config files, --scan, or ensure the image has a scannable entrypoint.\n")
-		return 1
+		return 2
 	}
 
 	// Build test plan and inject into container.
