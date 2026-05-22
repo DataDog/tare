@@ -66,7 +66,7 @@ func runCheckOCILayout(sf *sessionFlags, cfg *config.Config, scanPaths, scanIgno
 		len(cfg.Scan) > 0
 	if !hasTests {
 		fmt.Fprintf(os.Stderr, "error: no tests configured\n\nUse config files, --scan, or ensure the image has a scannable entrypoint.\n")
-		return 1
+		return 2
 	}
 
 	// Extract rootfs.
@@ -139,7 +139,7 @@ func runScanOCILayout(sf *sessionFlags, cfg *config.Config, scanPaths, scanIgnor
 
 	if len(cfg.Scan) == 0 {
 		fmt.Fprintf(os.Stderr, "error: no scan paths found. Use --path or configure scan in a config file.\n")
-		return 1
+		return 2
 	}
 
 	// Extract rootfs.

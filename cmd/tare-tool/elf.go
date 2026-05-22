@@ -13,7 +13,7 @@ import (
 func runElf(args []string) int {
 	if len(args) < 1 {
 		fmt.Fprintf(os.Stderr, "usage: tare-tool elf <deps|info> PATH\n")
-		return 2
+		return 1
 	}
 
 	switch args[0] {
@@ -23,7 +23,7 @@ func runElf(args []string) int {
 		return runElfInfo(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown elf subcommand: %s\n", args[0])
-		return 2
+		return 1
 	}
 }
 
@@ -38,7 +38,7 @@ func defaultRootFS() rootfs.FS {
 func runElfDeps(args []string) int {
 	if len(args) != 1 {
 		fmt.Fprintf(os.Stderr, "usage: tare-tool elf deps PATH\n")
-		return 2
+		return 1
 	}
 
 	path := args[0]
@@ -84,7 +84,7 @@ func runElfDeps(args []string) int {
 func runElfInfo(args []string) int {
 	if len(args) != 1 {
 		fmt.Fprintf(os.Stderr, "usage: tare-tool elf info PATH\n")
-		return 2
+		return 1
 	}
 
 	path := args[0]
