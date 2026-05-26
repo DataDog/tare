@@ -30,6 +30,7 @@ type sessionFlags struct {
 	harnessPath string
 	pull        string
 	noCleanup   bool
+	noAutoscan  bool
 	verbose     bool
 }
 
@@ -65,17 +66,26 @@ func mergeScanFlags(cfg *config.Config, paths []string, ignore []string, limit i
 	}
 }
 
-// ensureDefaultScanPath detects a scan path from the image config if no
-// scan entries exist in the config. Does nothing if paths are already set.
-func ensureDefaultScanPath(cfg *config.Config, icfg *oci.ImageConfig) {
+// ensureDefaultScanPath detects scan paths from the image config (ENTRYPOINT/CMD
+// directory + library-path env vars) and appends them to cfg.Scan. Does
+// nothing if cfg.Scan already has entries. The exists callback (if non-nil)
+// is used to skip paths that aren't present in the image's filesystem;
+// pass nil to trust syntactic detection only.
+func ensureDefaultScanPath(cfg *config.Config, icfg *oci.ImageConfig, exists func(string) bool, verbose bool) {
 	if len(cfg.Scan) > 0 {
 		return
 	}
-	path := detectScanPath(icfg)
-	if path == "" {
+	candidates := detectScanPaths(icfg, exists, verbose)
+	if len(candidates) == 0 {
 		return
 	}
-	cfg.Scan = append(cfg.Scan, config.ScanEntry{Path: path})
+	printAutoscan(candidates)
+	for _, c := range candidates {
+		if !c.Exists {
+			continue
+		}
+		cfg.Scan = append(cfg.Scan, config.ScanEntry{Path: c.Path})
+	}
 }
 
 // applyRuntimeOpts copies tare.runtime fields into SessionOpts. No-op if
@@ -136,5 +146,6 @@ func (sf *sessionFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&sf.harnessPath, "harness", "", "")
 	fs.StringVar(&sf.pull, "pull", "never", "")
 	fs.BoolVar(&sf.noCleanup, "no-cleanup", false, "")
+	fs.BoolVar(&sf.noAutoscan, "no-autoscan", false, "")
 	fs.BoolVar(&sf.verbose, "verbose", false, "")
 }
