@@ -91,7 +91,7 @@ scan:
   - path: /opt/venv/lib
 ```
 
-Without explicit paths, tare autodetects a scan path from the image's entrypoint. Run `tare scan -i IMAGE` to see what it finds.
+Without explicit paths, tare autoscans the image: the `ENTRYPOINT`/`CMD` directory plus library-path env vars (`PYTHONPATH`, `LD_LIBRARY_PATH`, `CLASSPATH`, `NODE_PATH`, `PERL5LIB`, `GEM_PATH`). Run `tare scan -i IMAGE` to see what it finds, or pass `--no-autoscan` to disable detection and scan only paths from `--path`/`--scan` or `tare.scan`.
 
 See [docs/configuration.md](docs/configuration.md#scan) for the full scan configuration reference.
 

@@ -6,13 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/signal"
 	"strings"
-	"sync"
-	"syscall"
 
+	"github.com/DataDog/tare/internal/config"
 	"github.com/DataDog/tare/internal/container"
-	"github.com/DataDog/tare/internal/harness"
 	"github.com/DataDog/tare/internal/scan"
 )
 
@@ -24,8 +21,9 @@ Scan a container image for shared library dependency issues.
 Walks ELF binaries (including .so files inside JARs) under the given paths,
 resolves their shared library dependencies, and reports any that are missing.
 
-By default, scans the entrypoint directory. Config files can specify paths
-via the tare.scan section.
+By default, autoscans the image: ENTRYPOINT/CMD directory plus library-path
+env vars (PYTHONPATH, LD_LIBRARY_PATH, CLASSPATH, NODE_PATH, PERL5LIB, GEM_PATH).
+Config files can specify paths via the tare.scan section.
 
 Options:
     -i, --image IMAGE         Container image to scan (required)
@@ -33,6 +31,8 @@ Options:
         --ignore PAT          Ignore a binary path or library name (repeatable)
         --limit N             Max ELF binaries to scan (default: 1024)
         --json                Output scan report as JSON
+        --no-autoscan         Disable ENTRYPOINT/CMD + env var scan-path detection
+                              (paths in tare.scan or --path are still scanned)
         --harness PATH        Path to local harness directory (overrides embedded harness)
         --runtime BIN         Container runtime binary (default: docker)
         --platform PLAT       Target platform (default: linux/GOARCH)
@@ -95,115 +95,81 @@ func runScan(args []string) int {
 		return runScanOCILayout(&sf, cfg, scanPaths, scanIgnore, scanLimit, jsonOutput)
 	}
 
-	// Build harness and start session.
-	rt := &container.Runtime{Bin: sf.runtimeBin}
-	harnessReader, err := harness.Select(sf.harnessPath, sf.platform)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
+	return withSession(&sf, cfg, func(sess *container.Session) int {
+		// Autodetect scan paths from image config if no paths specified.
+		if len(scanPaths) == 0 && !sf.noAutoscan {
+			ensureDefaultScanPath(cfg, sess.Config, sess.PathExists, sf.verbose)
+		}
+		mergeScanFlags(cfg, scanPaths, scanIgnore, scanLimit)
 
-	sessOpts := container.SessionOpts{
-		Image:    sf.image,
-		Platform: sf.platform,
-		Pull:     sf.pull,
-		Harness:  harnessReader,
-		Verbose:  sf.verbose,
-	}
-	applyRuntimeOpts(&sessOpts, cfg)
-	sess, err := rt.NewSession(sessOpts)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
+		if len(cfg.Scan) == 0 {
+			fmt.Fprintf(os.Stderr, "error: no scan paths found. Use --path or configure scan in a config file.\n")
+			return 1
+		}
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		entries := cfg.Scan
+		printScanPreamble(entries)
 
-	var cleanupOnce sync.Once
-	cleanup := func() {
-		cleanupOnce.Do(func() {
-			signal.Stop(sigCh)
-			if sf.noCleanup {
-				fmt.Fprintf(os.Stderr, "container left running: %s\n", sess.ID())
-				return
+		var reports []*scan.Report
+		for i, entry := range entries {
+			cmd := []string{container.HarnessBin("tare-tool"), "scan", "--format", "json"}
+			if i > 0 {
+				cmd = append(cmd, "--no-runtime")
 			}
-			if sf.verbose {
-				fmt.Fprintf(os.Stderr, "removing container %s...\n", sess.ID()[:12])
+			if entry.Limit > 0 {
+				cmd = append(cmd, "--limit", fmt.Sprintf("%d", entry.Limit))
 			}
-			_ = sess.Close()
-		})
-	}
-	defer cleanup()
+			for _, ig := range entry.Ignore {
+				cmd = append(cmd, "--ignore", ig)
+			}
+			if sess.Config != nil && sess.Config.Architecture != "" {
+				cmd = append(cmd, "--target-arch", sess.Config.Architecture)
+			}
+			cmd = append(cmd, entry.Path)
 
-	go func() {
-		<-sigCh
-		cleanup()
-		os.Exit(130)
-	}()
+			var stdout bytes.Buffer
+			exitCode, err := sess.Exec(container.ExecOpts{Stdout: &stdout}, cmd...)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				return 1
+			}
+			if exitCode == 2 {
+				// Exit code 2 = tare-tool usage error (bad flags, etc.)
+				fmt.Fprintf(os.Stderr, "error: tare-tool scan failed\n%s", stdout.String())
+				return 1
+			}
 
-	// Autodetect scan path from image config if no paths specified.
-	if len(scanPaths) == 0 {
-		ensureDefaultScanPath(cfg, sess.Config)
-	}
-	mergeScanFlags(cfg, scanPaths, scanIgnore, scanLimit)
+			var report scan.Report
+			if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+				fmt.Fprintf(os.Stderr, "error: parsing scan output: %v\n", err)
+				return 1
+			}
+			reports = append(reports, &report)
+		}
 
-	if len(cfg.Scan) == 0 {
-		fmt.Fprintf(os.Stderr, "error: no scan paths found. Use --path or configure scan in a config file.\n")
-		return 1
-	}
+		exitCode := emitScanReports(reports, jsonOutput)
+		printTareWeight(sess, cfg)
+		return exitCode
+	})
+}
 
-	// Run tare-tool scan per entry, capturing JSON to aggregate results.
-	entries := cfg.Scan
+// printScanPreamble writes "scanning ..." progress to stderr.
+func printScanPreamble(entries []config.ScanEntry) {
 	if len(entries) == 1 {
 		fmt.Fprintf(os.Stderr, "scanning %s...\n", entries[0].Path)
-	} else {
-		paths := make([]string, len(entries))
-		for i, e := range entries {
-			paths[i] = e.Path
-		}
-		fmt.Fprintf(os.Stderr, "scanning %d paths: %s\n", len(entries), strings.Join(paths, ", "))
+		return
 	}
-
-	var reports []*scan.Report
-	for i, entry := range entries {
-		cmd := []string{container.HarnessBin("tare-tool"), "scan", "--format", "json"}
-		if i > 0 {
-			cmd = append(cmd, "--no-runtime")
-		}
-		if entry.Limit > 0 {
-			cmd = append(cmd, "--limit", fmt.Sprintf("%d", entry.Limit))
-		}
-		for _, ig := range entry.Ignore {
-			cmd = append(cmd, "--ignore", ig)
-		}
-		if sess.Config != nil && sess.Config.Architecture != "" {
-			cmd = append(cmd, "--target-arch", sess.Config.Architecture)
-		}
-		cmd = append(cmd, entry.Path)
-
-		var stdout bytes.Buffer
-		exitCode, err := sess.Exec(container.ExecOpts{Stdout: &stdout}, cmd...)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			return 1
-		}
-		if exitCode == 2 {
-			// Exit code 2 = tare-tool usage error (bad flags, etc.)
-			fmt.Fprintf(os.Stderr, "error: tare-tool scan failed\n%s", stdout.String())
-			return 1
-		}
-
-		var report scan.Report
-		if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
-			fmt.Fprintf(os.Stderr, "error: parsing scan output: %v\n", err)
-			return 1
-		}
-		reports = append(reports, &report)
+	paths := make([]string, len(entries))
+	for i, e := range entries {
+		paths[i] = e.Path
 	}
+	fmt.Fprintf(os.Stderr, "scanning %d paths: %s\n", len(entries), strings.Join(paths, ", "))
+}
 
+// emitScanReports merges reports, writes them in the chosen format, and
+// returns the exit code (1 if any binary has missing deps, 0 otherwise).
+func emitScanReports(reports []*scan.Report, jsonOutput bool) int {
 	merged := scan.MergeReports(reports...)
-
 	if jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -211,9 +177,6 @@ func runScan(args []string) int {
 	} else {
 		scan.PrintReport(os.Stdout, merged, "")
 	}
-
-	printTareWeight(sess, cfg)
-
 	if merged.Summary.Errors > 0 {
 		return 1
 	}

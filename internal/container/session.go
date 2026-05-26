@@ -141,3 +141,14 @@ func (s *Session) WriteFile(destPath string, data []byte, mode int64) error {
 func (s *Session) Close() error {
 	return s.rt.remove(s.id)
 }
+
+// PathExists reports whether path exists in the container as a directory.
+// Implemented by invoking the harness `test` applet — single docker exec
+// per call. Suitable for the small number of paths autoscan inspects.
+func (s *Session) PathExists(path string) bool {
+	code, err := s.Exec(ExecOpts{
+		Stdout: io.Discard,
+		Stderr: io.Discard,
+	}, HarnessBin("test"), "-d", path)
+	return err == nil && code == 0
+}

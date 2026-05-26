@@ -285,6 +285,21 @@ scan:
 
 The first scan entry also reports informational warnings for missing common runtime files (CA certificates, `/etc/passwd`, `/etc/group`, `/etc/nsswitch.conf`). These are informational and do not cause the scan to fail.
 
+### Autoscan
+
+When no `scan` entries are configured (and no `--scan`/`--path` flags are passed), tare autodetects scan paths from the image config:
+
+- The `ENTRYPOINT[0]` (or `CMD[0]` fallback) binary's directory. Relative paths are resolved against `WORKDIR`.
+- Library-path environment variables, split on `:` — `PYTHONPATH`, `LD_LIBRARY_PATH`, `NODE_PATH`, `CLASSPATH`, `PERL5LIB`, `GEM_PATH`.
+
+For `CLASSPATH`, `dir/*` entries expand to `dir`, and `foo.jar` entries are reduced to their parent directory. Entries that aren't absolute paths (e.g., Java's default `.`) are dropped, as are paths inside well-known system dirs (`/`, `/usr`, `/usr/bin`, `/usr/lib`, `/bin`, `/sbin`, `/lib`).
+
+Detected paths are stat-checked against the image's filesystem — paths that don't exist are listed in the "Skipped" section of the autoscan output but don't cause a failure. Explicit paths from `--scan`/`--path` or `tare.scan` are *not* stat-checked this way: a missing explicit path is an error.
+
+Each detected path becomes its own scan entry. If a single env var expands to more than 10 entries, tare prints a warning suggesting `--no-autoscan` for cases where the expansion is unintended; all entries are still scanned.
+
+Pass `--no-autoscan` to `tare check` or `tare scan` to disable detection entirely. Explicit paths from `--scan`/`--path` and `tare.scan` are still scanned.
+
 ## `tare.runtime`
 
 Container runtime configuration. Use this to match your deployment environment — k8s pod spec, compose file, bazel `oci_image` config — so tests run under the same constraints production does.
